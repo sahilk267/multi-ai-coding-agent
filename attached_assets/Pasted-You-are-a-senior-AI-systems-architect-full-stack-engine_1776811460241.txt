@@ -1,0 +1,379 @@
+You are a senior AI systems architect, full-stack engineer, and agent framework designer.
+
+Your task is to generate a COMPLETE, PRODUCTION-READY project:
+
+"Browser-Based Multi-AI Autonomous Coding Agent (NO API MODE)"
+
+This system must replicate a simplified version of Cursor/Devin using ONLY web-based AI interfaces (no API usage).
+
+---
+
+🎯 CORE OBJECTIVE
+
+Build a multi-AI autonomous agent that can:
+
+- Work on EXISTING projects (folder input)
+- CREATE new projects from scratch
+- PLAN tasks (multi-step)
+- EXECUTE actions (files, commands)
+- DEBUG errors automatically
+- RUN tests and fix failures
+- MAINTAIN memory and context
+- USE multiple AI models collaboratively
+
+---
+
+🏗️ SYSTEM ARCHITECTURE
+
+Must include:
+
+1. Chrome Extension (Manifest v3)
+2. Local Backend (Python FastAPI)
+3. Agent Core Engine (planner + executor + loop)
+4. Context Engine (project understanding)
+5. Memory System (short + long term)
+6. Testing System
+7. Safety & Permission System
+
+---
+
+📁 PROJECT STRUCTURE
+
+Generate FULL code for:
+
+ai-agent/
+│
+├── extension/
+│   ├── manifest.json
+│   ├── popup.html
+│   ├── popup.js
+│   ├── background.js
+│   ├── content.js
+│   ├── ui/
+│   │   ├── panel.html
+│   │   ├── panel.js
+│   │   └── styles.css
+│   ├── adapters/
+│   │   ├── chatgpt.js
+│   │   ├── deepseek.js
+│   │   ├── qwen.js
+│   │   └── gemini.js
+│   ├── core/
+│   │   ├── planner.js
+│   │   ├── executor.js
+│   │   ├── agentLoop.js
+│   │   ├── toolRegistry.js
+│   │   ├── router.js
+│   │   ├── memory.js
+│   │   ├── contextEngine.js
+│   │   ├── parser.js
+│   │   └── diffViewer.js
+│
+├── backend/
+│   ├── server.py
+│   ├── project_manager.py
+│   ├── file_indexer.py
+│   ├── test_runner.py
+│   ├── git_manager.py
+│   └── security.py
+│
+├── projects/
+├── memory/
+├── logs/
+└── README.md
+
+---
+
+🧠 AGENT CORE REQUIREMENTS
+
+1. MULTI-STEP PLANNER (ADVANCED)
+
+Implement hierarchical planning:
+
+{
+"goal": "",
+"tasks": [
+{
+"name": "",
+"steps": [
+{
+"action": "write_file | read_file | execute_command | run_tests",
+"path": "",
+"content": "",
+"cmd": ""
+}
+]
+}
+]
+}
+
+---
+
+2. EXECUTION ENGINE
+
+- Execute steps sequentially
+- Track progress
+- Retry failed steps
+- Store results in memory
+
+---
+
+3. ERROR FIX LOOP
+
+- Detect errors from logs
+- Send error to AI
+- Ask for fix
+- Apply fix automatically
+- Retry until success or max attempts
+
+---
+
+4. TOOL SYSTEM
+
+Create a dynamic tool registry:
+
+Tools must include:
+
+- read_file
+- write_file
+- list_files
+- execute_command
+- install_package
+- run_tests
+
+AI must use tools via JSON.
+
+---
+
+🧠 CONTEXT ENGINE (CRITICAL)
+
+Implement:
+
+File Indexing
+
+- Scan project
+- Extract:
+  - file summaries
+  - functions
+  - dependencies
+
+Smart Context Selection
+
+- Only send relevant files to AI
+- Based on user task
+
+---
+
+🧠 MEMORY SYSTEM
+
+Implement:
+
+1. Short-term memory
+
+- current steps
+- last actions
+
+2. Long-term memory
+
+Store in JSON:
+
+- project structure
+- important files
+- known bugs
+- past fixes
+
+3. Error memory
+
+- avoid repeating same mistakes
+
+---
+
+🧪 TESTING SYSTEM
+
+Implement:
+
+- Auto test detection:
+  
+  - Node → npm test
+  - Python → pytest
+
+- AI-generated tests:
+  "Write test cases for this file"
+
+- Loop:
+  code → test → fail → fix → pass
+
+---
+
+🔄 DIFF SYSTEM
+
+Before modifying any file:
+
+- Show diff:
+  old vs new
+- Allow:
+  - auto apply
+  - manual approval mode
+
+---
+
+🔐 SECURITY SYSTEM
+
+Must include:
+
+- Allowed directory restriction (/projects)
+- Block dangerous commands:
+  rm, format, shutdown, etc.
+- Validate file paths
+- Safe execution mode
+
+---
+
+🌐 MULTI-AI SUPPORT
+
+Support:
+
+- ChatGPT
+- DeepSeek
+- Qwen
+- Gemini
+
+---
+
+AI ROUTING SYSTEM
+
+Implement smart routing:
+
+- coding → DeepSeek
+- debugging → Qwen
+- fast tasks → Gemini
+- fallback → ChatGPT
+
+---
+
+MULTI-AI COLLABORATION
+
+Optional advanced:
+
+- Ask multiple AIs
+- Compare responses
+- Select best output
+
+---
+
+🌐 CONTENT SCRIPT (DOM AUTOMATION)
+
+Must:
+
+- Detect input box dynamically
+- Inject prompt
+- Click send
+- Extract latest response
+- Handle UI variations
+
+---
+
+🔌 BACKEND (FASTAPI)
+
+Endpoints:
+
+POST /write_file
+POST /read_file
+POST /execute
+POST /list_files
+POST /run_tests
+
+---
+
+PROJECT MANAGER
+
+- Create new project
+- Load existing project
+- Ignore node_modules
+- Return project map
+
+---
+
+FILE INDEXER
+
+- Parse files
+- Extract metadata
+- Build searchable index
+
+---
+
+TEST RUNNER
+
+- Run tests
+- Return results
+- Detect failures
+
+---
+
+GIT MANAGER
+
+- Init repo
+- Commit changes
+- Rollback support
+
+---
+
+🎨 UI REQUIREMENTS
+
+Create a mini IDE interface:
+
+- File explorer
+- AI chat panel
+- Logs console
+- Diff viewer
+- Controls:
+  start / pause / stop
+
+---
+
+🧠 PROMPT RULES (STRICT)
+
+ALL AI prompts MUST include:
+
+"You MUST respond ONLY in valid JSON. No explanations."
+
+---
+
+⚙️ PERFORMANCE OPTIMIZATION
+
+- Cache file index
+- Chunk large files
+- Limit context size
+
+---
+
+📘 README.md
+
+Include:
+
+- Full setup instructions
+- How to run backend
+- How to load extension
+- How to use agent
+- Troubleshooting
+
+---
+
+🚀 OUTPUT RULES
+
+- Generate ALL files fully
+- Do NOT skip anything
+- Do NOT summarize
+- Code must be runnable
+- Add comments in code
+- Maintain clean structure
+
+---
+
+🔥 GOAL
+
+Produce a WORKING, COMPLETE, EXTENSIBLE AI coding agent system.
+
+No placeholders.
+No incomplete code.
+No missing modules.

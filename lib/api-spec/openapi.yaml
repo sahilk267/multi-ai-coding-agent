@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Multi-AI Coding Agent API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: projects
+    description: Project management
+  - name: files
+    description: File operations
+  - name: agent
+    description: Agent control and execution
+  - name: memory
+    description: Agent memory system
+  - name: logs
+    description: Execution logs
 paths:
   /healthz:
     get:
@@ -24,6 +34,417 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List all projects
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectBody"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /projects/{id}/files:
+    get:
+      operationId: listFiles
+      tags: [files]
+      summary: List files in a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File tree
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileNode"
+
+  /projects/{id}/files/read:
+    post:
+      operationId: readFile
+      tags: [files]
+      summary: Read a file's content
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadFileBody"
+      responses:
+        "200":
+          description: File content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileContent"
+
+  /projects/{id}/files/write:
+    post:
+      operationId: writeFile
+      tags: [files]
+      summary: Write content to a file
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WriteFileBody"
+      responses:
+        "200":
+          description: File written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResult"
+
+  /projects/{id}/execute:
+    post:
+      operationId: executeCommand
+      tags: [agent]
+      summary: Execute a shell command in the project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteCommandBody"
+      responses:
+        "200":
+          description: Command result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResult"
+
+  /projects/{id}/tests:
+    post:
+      operationId: runTests
+      tags: [agent]
+      summary: Run tests for the project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestResult"
+
+  /projects/{id}/git/init:
+    post:
+      operationId: gitInit
+      tags: [agent]
+      summary: Initialize git repository
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Git initialized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResult"
+
+  /projects/{id}/git/commit:
+    post:
+      operationId: gitCommit
+      tags: [agent]
+      summary: Commit changes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitCommitBody"
+      responses:
+        "200":
+          description: Committed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResult"
+
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [agent]
+      summary: List all agent sessions
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentSession"
+    post:
+      operationId: createSession
+      tags: [agent]
+      summary: Create a new agent session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionBody"
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+
+  /sessions/{id}:
+    get:
+      operationId: getSession
+      tags: [agent]
+      summary: Get session details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+    patch:
+      operationId: updateSession
+      tags: [agent]
+      summary: Update session status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSessionBody"
+      responses:
+        "200":
+          description: Session updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+
+  /sessions/{id}/logs:
+    get:
+      operationId: getSessionLogs
+      tags: [logs]
+      summary: Get logs for a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Session logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogEntry"
+
+  /sessions/{id}/plan:
+    get:
+      operationId: getSessionPlan
+      tags: [agent]
+      summary: Get the plan for a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Session plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentPlan"
+
+  /memory:
+    get:
+      operationId: getMemory
+      tags: [memory]
+      summary: Get agent memory for a project
+      parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Memory entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MemoryEntry"
+    post:
+      operationId: addMemory
+      tags: [memory]
+      summary: Add a memory entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMemoryBody"
+      responses:
+        "201":
+          description: Memory added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryEntry"
+
+  /memory/{id}:
+    delete:
+      operationId: deleteMemory
+      tags: [memory]
+      summary: Delete a memory entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [agent]
+      summary: Get overall agent statistics
+      responses:
+        "200":
+          description: Agent stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStats"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +455,372 @@ components:
       required:
         - status
 
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        path:
+          type: string
+        language:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - name
+        - path
+        - createdAt
+        - updatedAt
+
+    CreateProjectBody:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        description:
+          type: ["string", "null"]
+        language:
+          type: ["string", "null"]
+      required:
+        - name
+        - path
+
+    FileNode:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, directory]
+        size:
+          type: ["integer", "null"]
+        children:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/FileNode"
+      required:
+        - name
+        - path
+        - type
+
+    ReadFileBody:
+      type: object
+      properties:
+        path:
+          type: string
+      required:
+        - path
+
+    FileContent:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        language:
+          type: ["string", "null"]
+        size:
+          type: integer
+      required:
+        - path
+        - content
+        - size
+
+    WriteFileBody:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        createDirs:
+          type: boolean
+      required:
+        - path
+        - content
+
+    ExecuteCommandBody:
+      type: object
+      properties:
+        command:
+          type: string
+        timeout:
+          type: ["integer", "null"]
+      required:
+        - command
+
+    CommandResult:
+      type: object
+      properties:
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exitCode:
+          type: integer
+        success:
+          type: boolean
+        duration:
+          type: integer
+      required:
+        - stdout
+        - stderr
+        - exitCode
+        - success
+        - duration
+
+    TestResult:
+      type: object
+      properties:
+        passed:
+          type: integer
+        failed:
+          type: integer
+        total:
+          type: integer
+        success:
+          type: boolean
+        output:
+          type: string
+        duration:
+          type: integer
+      required:
+        - passed
+        - failed
+        - total
+        - success
+        - output
+        - duration
+
+    GitCommitBody:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    OperationResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    AgentSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: ["integer", "null"]
+        goal:
+          type: string
+        status:
+          type: string
+          enum: [idle, planning, running, paused, completed, failed]
+        aiModel:
+          type: string
+          enum: [chatgpt, deepseek, qwen, gemini, auto]
+        currentStep:
+          type: ["integer", "null"]
+        totalSteps:
+          type: ["integer", "null"]
+        errorCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - goal
+        - status
+        - aiModel
+        - errorCount
+        - createdAt
+        - updatedAt
+
+    CreateSessionBody:
+      type: object
+      properties:
+        projectId:
+          type: ["integer", "null"]
+        goal:
+          type: string
+        aiModel:
+          type: string
+          enum: [chatgpt, deepseek, qwen, gemini, auto]
+      required:
+        - goal
+        - aiModel
+
+    UpdateSessionBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [idle, planning, running, paused, completed, failed]
+        currentStep:
+          type: ["integer", "null"]
+        totalSteps:
+          type: ["integer", "null"]
+
+    LogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: integer
+        level:
+          type: string
+          enum: [info, warn, error, debug, success]
+        message:
+          type: string
+        data:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - sessionId
+        - level
+        - message
+        - createdAt
+
+    AgentPlan:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+        goal:
+          type: string
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanTask"
+      required:
+        - sessionId
+        - goal
+        - tasks
+
+    PlanTask:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanStep"
+      required:
+        - name
+        - status
+        - steps
+
+    PlanStep:
+      type: object
+      properties:
+        action:
+          type: string
+        path:
+          type: ["string", "null"]
+        content:
+          type: ["string", "null"]
+        command:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        result:
+          type: ["string", "null"]
+      required:
+        - action
+        - status
+
+    MemoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: ["integer", "null"]
+        type:
+          type: string
+          enum: [project_structure, known_bug, past_fix, important_file, error_pattern, general]
+        key:
+          type: string
+        value:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - type
+        - key
+        - value
+        - createdAt
+
+    AddMemoryBody:
+      type: object
+      properties:
+        projectId:
+          type: ["integer", "null"]
+        type:
+          type: string
+          enum: [project_structure, known_bug, past_fix, important_file, error_pattern, general]
+        key:
+          type: string
+        value:
+          type: string
+      required:
+        - type
+        - key
+        - value
+
+    AgentStats:
+      type: object
+      properties:
+        totalProjects:
+          type: integer
+        totalSessions:
+          type: integer
+        completedSessions:
+          type: integer
+        failedSessions:
+          type: integer
+        totalFilesModified:
+          type: integer
+        totalCommandsRun:
+          type: integer
+        activeModel:
+          type: string
+      required:
+        - totalProjects
+        - totalSessions
+        - completedSessions
+        - failedSessions
+        - totalFilesModified
+        - totalCommandsRun
+        - activeModel
