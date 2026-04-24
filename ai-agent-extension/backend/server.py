@@ -121,6 +121,25 @@ class CreateSessionRequest(BaseModel):
     project_id: Optional[int] = None
 
 
+# ── Approval queue ─────────────────────────────────────────────────────────────
+# Keyed by id; resolved ones are removed
+
+class ApprovalAdd(BaseModel):
+    id: Optional[str] = None
+    kind: str
+    path: Optional[str] = None
+    cmd: Optional[str] = None
+    old_content: Optional[str] = None
+    new_content: Optional[str] = None
+    step: Optional[dict] = None
+
+class ApprovalDecision(BaseModel):
+    decision: str  # "approve" | "reject"
+
+_approval_queue: Dict[str, dict] = {}
+_approval_results: Dict[str, str] = {}  # id -> "approve" | "reject"
+
+
 # ── Sessions in-memory ─────────────────────────────────────────────────────────
 sessions_store: List[dict] = []
 _session_counter = 0
@@ -397,6 +416,63 @@ def update_session(session_id: int, status: str):
             s["status"] = status
             return s
     raise HTTPException(404, "session not found")
+
+
+# ── Approval Queue API ─────────────────────────────────────────────────────────
+
+@app.get("/approvals")
+def list_approvals():
+    return {"items": list(_approval_queue.values())}
+
+@app.post("/approvals/add")
+async def add_approval(req: ApprovalAdd):
+    approval_id = req.id or uuid.uuid4().hex[:12]
+    item = {
+        "id": approval_id,
+        "kind": req.kind,
+        "path": req.path,
+        "cmd": req.cmd,
+        "oldContent": req.old_content,
+        "newContent": req.new_content,
+        "step": req.step,
+        "receivedAt": int(time.time() * 1000),
+    }
+    _approval_queue[approval_id] = item
+    await ws_manager.broadcast("approval_request", item)
+    _set_state("WAITING_APPROVAL")
+    return {"ok": True, "id": approval_id}
+
+@app.post("/approvals/{approval_id}")
+async def resolve_approval(approval_id: str, req: ApprovalDecision):
+    if req.decision not in ("approve", "reject"):
+        raise HTTPException(400, "decision must be 'approve' or 'reject'")
+    item = _approval_queue.pop(approval_id, None)
+    _approval_results[approval_id] = req.decision
+    if item:
+        await ws_manager.broadcast("approval_resolved", {
+            "id": approval_id, "decision": req.decision,
+            "kind": item.get("kind"), "path": item.get("path"), "cmd": item.get("cmd"),
+        })
+        # Persist to approval_history memory file
+        history_file = MEMORY_DIR / "approval_history.json"
+        try:
+            history = json.loads(history_file.read_text()) if history_file.exists() else []
+            history.append({"id": approval_id, "decision": req.decision, "item": item, "timestamp": int(time.time() * 1000)})
+            if len(history) > 500: history = history[-500:]
+            history_file.write_text(json.dumps(history, indent=2, ensure_ascii=False))
+        except Exception: pass
+    # If no more approvals, return to executing state
+    if not _approval_queue:
+        _set_state("EXECUTING")
+    return {"ok": True, "id": approval_id, "decision": req.decision}
+
+@app.get("/approvals/{approval_id}/result")
+def get_approval_result(approval_id: str):
+    if approval_id in _approval_results:
+        return {"id": approval_id, "decision": _approval_results[approval_id], "resolved": True}
+    if approval_id in _approval_queue:
+        return {"id": approval_id, "resolved": False}
+    raise HTTPException(404, "approval not found")
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────

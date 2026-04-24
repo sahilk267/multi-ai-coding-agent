@@ -4,7 +4,7 @@ import {
   FolderGit2, 
   Activity, 
   BrainCircuit,
-  Settings,
+  Radio,
   ChevronRight
 } from "lucide-react";
 import { useHealthCheck } from "@workspace/api-client-react";
@@ -20,6 +20,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { href: "/projects", label: "Projects", icon: FolderGit2 },
     { href: "/sessions", label: "Sessions", icon: Activity },
     { href: "/memory", label: "Memory", icon: BrainCircuit },
+    { href: "/agent", label: "Agent Live", icon: Radio },
   ];
 
   return (
