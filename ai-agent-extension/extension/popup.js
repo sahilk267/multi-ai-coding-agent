@@ -23,7 +23,7 @@ async function loadConfig() {
     CONFIG = await r.json();
     return CONFIG;
   } catch {
-    CONFIG = { backendUrl: "http://localhost:8000" };
+    CONFIG = { backendUrl: "http://127.0.0.1:8765" };
     return CONFIG;
   }
 }
@@ -42,7 +42,7 @@ async function checkBackend() {
   } catch {
     statusDot.className = "status-dot disconnected";
     startBtn.disabled = true;
-    log("Backend offline — run: uvicorn backend.server:app --port 8000", "error");
+    log("Backend offline — run: uvicorn backend.server:app --host 127.0.0.1 --port 8765", "error");
     return false;
   }
 }

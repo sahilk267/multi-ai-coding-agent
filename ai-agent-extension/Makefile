@@ -23,7 +23,7 @@ install:
 
 run:
         @test -d $(VENV) || (echo "venv missing — run 'make install' first" && exit 1)
-        $(ACTIVATE) && python -m uvicorn backend.server:app --host 127.0.0.1 --port 8000
+        $(ACTIVATE) && python -m uvicorn backend.server:app --host 127.0.0.1 --port 8765
 
 test:
         cd extension && npm test
@@ -43,15 +43,18 @@ verify:
                 echo ">>> backend smoke skipped: no venv (run 'make install' to enable)"; \
                 exit 0; \
         fi; \
-        if ! curl -fsS http://127.0.0.1:8000/ > /dev/null 2>&1; then \
-                echo ">>> backend smoke skipped: backend not reachable on 127.0.0.1:8000 (run 'make run' in another terminal)"; \
+        if ! curl -fsS http://127.0.0.1:8765/ > /dev/null 2>&1; then \
+                echo ">>> backend smoke skipped: backend not reachable on 127.0.0.1:8765 (run 'make run' in another terminal)"; \
                 exit 0; \
         fi; \
         echo ">>> backend smoke"; \
         $(MAKE) --no-print-directory smoke
 
 hooks:
-        git config core.hooksPath ai-agent/.githooks
+        mkdir -p .githooks
+        @printf '#!/usr/bin/env bash\nset -e\ncd "$(git rev-parse --show-toplevel)"\nmake verify\n' > .githooks/pre-push
+        @chmod +x .githooks/pre-push
+        git config core.hooksPath .githooks
         @echo "git hooks installed: pre-push -> make verify"
         @echo "bypass once with: git push --no-verify"
 

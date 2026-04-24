@@ -23,9 +23,9 @@ through Chrome automation APIs. No API keys required. A pnpm monorepo.
 - Content script (content.js) — DOM bridge
 - 4 provider adapters — chatgpt / deepseek / qwen / gemini (default exports)
 - Core modules — stateMachine, router, tokenManager, contextEngine, diffViewer, toolRegistry
-- Config: config.json — port 8000, all 4 providers, routing matrix, token limits
+- Config: config.json — backendUrl port 8765, all 4 providers, routing matrix, token limits (8k/32k)
 
-### Python Backend (ai-agent-extension/backend/, port 8000)
+### Python Backend (ai-agent-extension/backend/, port 8765)
 - FastAPI server (server.py) — 22+ REST endpoints + WebSocket /ws
 - SecurityManager (security.py) — binary allowlist + blocked tokens + path traversal guard
 - ProjectManager (project_manager.py) — file ops + optional watchdog file watcher
@@ -51,7 +51,7 @@ through Chrome automation APIs. No API keys required. A pnpm monorepo.
 - `node scripts/budget.mjs <provider> <file>` — token budget CLI
 
 ### Python backend
-- `cd ai-agent-extension/backend && python server.py` — start on port 8000
+- `cd ai-agent-extension/backend && python server.py` — start on port 8765
 
 ## Architecture Notes
 
@@ -61,7 +61,7 @@ through Chrome automation APIs. No API keys required. A pnpm monorepo.
 - Token budgeting: budgetPrompt() keeps HEAD 60% + TAIL 40% when prompt > model limit
 - Security: allowlist (npm/git/python/etc.) + blocked tokens (&&/||/;/|/$() etc.) + path traversal 403
 - Routing: planning→chatgpt, coding→deepseek, debugging→qwen, long_context→gemini
-- Backend port: 8000 (not reference's 8765)
+- Backend port: 8765
 - Watchdog: project_manager.py uses watchdog lib if installed for file system events
 
 ## CI/CD

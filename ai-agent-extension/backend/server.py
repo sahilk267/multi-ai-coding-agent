@@ -3,8 +3,8 @@ Multi-AI Autonomous Coding Agent — FastAPI Backend
 Fully merged: file ops, command execution (streaming), WebSocket, git, tests,
 named memory, state machine, routing config, project management, approval history.
 
-Run: uvicorn backend.server:app --reload --port 8000
-  or: uvicorn server:app --reload --port 8000  (from inside backend/)
+Run: uvicorn backend.server:app --reload --host 127.0.0.1 --port 8765
+  or: uvicorn server:app --reload --host 127.0.0.1 --port 8765  (from inside backend/)
 """
 
 import asyncio
@@ -558,4 +558,4 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.server:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("backend.server:app", host="127.0.0.1", port=8765, reload=True)

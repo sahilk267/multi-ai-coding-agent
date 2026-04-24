@@ -1,6 +1,6 @@
 // Memory System — short-term session memory + long-term via backend
 export class Memory {
-  constructor({ backendUrl = "http://localhost:8000" } = {}) {
+  constructor({ backendUrl = "http://127.0.0.1:8765" } = {}) {
     this.backendUrl = backendUrl;
     this.shortTerm = [];
     this.errorMemory = new Set();

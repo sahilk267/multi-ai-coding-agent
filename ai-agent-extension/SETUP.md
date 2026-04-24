@@ -35,7 +35,7 @@ The Python backend offers an alternative if you want to run it locally.
 ```bash
 cd ai-agent-extension/backend
 pip install -r requirements.txt
-uvicorn server:app --reload --port 8000
+uvicorn server:app --reload --host 127.0.0.1 --port 8765
 ```
 
 ### Endpoints:

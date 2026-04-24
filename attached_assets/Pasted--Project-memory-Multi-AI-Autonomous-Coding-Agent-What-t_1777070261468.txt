@@ -1,0 +1,164 @@
+# Project memory — Multi-AI Autonomous Coding Agent
+
+## What this project actually is
+
+A **browser-based, no-API-key autonomous coding agent** (Cursor/Devin/Windsurf-style)
+that drives the public web UIs of ChatGPT, DeepSeek, Qwen, and Gemini from a
+Chrome MV3 extension, while a local FastAPI backend on `127.0.0.1:8765` owns
+the filesystem, shell, tests, and git.
+
+Everything lives under `ai-agent/`. The `artifacts/` directory at the repo
+root contains unrelated leftover scaffold workflows (`api-server`,
+`mockup-sandbox`) — these are **not part of this project** and must not be
+modified.
+
+## Architecture (one-line summary)
+
+`Chrome MV3 extension (planner → router → 4 provider adapters → executor)`
+↔ `WebSocket` ↔ `FastAPI backend (FS / shell / tests / git / watcher)`.
+
+Full diagrams live in `ai-agent/docs/architecture.md` (component, sequence,
+state machine — Mermaid).
+
+## Routing policy (no-API mode, web-UI driven)
+
+| Task kind     | Primary  | Fallback order                |
+|---------------|----------|-------------------------------|
+| planning      | ChatGPT  | DeepSeek → Gemini → Qwen      |
+| coding        | DeepSeek | ChatGPT → Qwen → Gemini       |
+| debugging     | Qwen     | DeepSeek → ChatGPT → Gemini   |
+| long_context  | Gemini   | ChatGPT → DeepSeek → Qwen     |
+
+Token budgets per provider live in `extension/config.json` `modelLimits`
+and are enforced by `extension/core/tokenManager.js` (`budgetPrompt`),
+wired into `background.js` `sendPromptToProvider`.
+
+## Repo layout
+
+```
+ai-agent/
+├── extension/              # Chrome MV3 extension
+│   ├── manifest.json
+│   ├── background.js       # service worker, state machine, routing, checkpointing
+│   ├── content.js          # injected into provider tabs
+│   ├── popup.html / popup.js
+│   ├── adapters/           # chatgpt.js, deepseek.js, qwen.js, gemini.js (+ base.js)
+│   ├── core/               # planner, executor, tokenManager, websocket, memory, logger
+│   ├── ui/                 # IDE-style side panel
+│   ├── scripts/            # budget.js, check-selectors.js, snapshot-config.js
+│   └── config.json         # routing, modelLimits, providerUrls, loop settings
+├── backend/                # FastAPI on 127.0.0.1:8765
+│   ├── server.py           # 22 REST endpoints + /ws WebSocket
+│   ├── security.py         # allow-list / forbidden-token validator + safe_resolve
+│   ├── project_manager.py  # active project, watchdog file watcher
+│   ├── test_runner.py      # framework auto-detect + .agent-test-config.json override
+│   ├── git_manager.py      # status / diff / commit / branch
+│   ├── file_indexer.py     # symbol index for context
+│   ├── ai_router.py        # backend-side hint endpoint
+│   ├── websocket_manager.py
+│   ├── logger.py
+│   ├── test_smoke.py       # backend smoke test
+│   ├── requirements.txt
+│   └── Dockerfile
+├── docs/architecture.md    # Mermaid diagrams
+├── scripts/                # install.sh, install.ps1, run.sh, run.ps1
+├── memory/                 # session_memory.json, project_memory.json (runtime)
+├── projects/               # active workspaces the agent operates on
+├── logs/                   # rotating logs
+├── docker-compose.yml      # binds 127.0.0.1:8765 only — never 0.0.0.0
+├── Makefile                # install / run / test / check / smoke / verify / clean
+├── README.md               # ~560 lines, 9 reference tables, full feature/impl docs
+├── CONTRIBUTING.md         # how to add a new provider adapter
+└── .github/
+    ├── workflows/
+    │   ├── ci.yml          # single `verify` job (Node + Python) on every push/PR
+    │   └── release.yml     # on tag `v*`: verify → build zip → attach to GitHub Release
+    └── CODEOWNERS
+```
+
+## Key commands
+
+All commands run from `ai-agent/`.
+
+```bash
+make install   # extension npm i + backend pip install -r requirements.txt
+make run       # uvicorn backend.server:app --port 8765
+make test      # extension unit tests (token budgeter: 10/10)
+make check     # selector audit + config snapshot + token-budget CLI
+make smoke     # backend smoke test (requires python3)
+make verify    # test + check + smoke — the one-shot CI gate
+make hooks     # install git pre-push hook that runs 'make verify' (one-time)
+make unhooks   # uninstall the git pre-push hook
+make clean     # remove __pycache__, node_modules, logs
+```
+
+Individual extension scripts:
+
+- `npm run test` — unit tests (`extension/tests/`)
+- `npm run budget` — print token budget for a sample prompt
+- `npm run check-selectors` — audit each adapter has the 4 required selector arrays
+- `npm run snapshot-config` — verify routing matrix is consistent and primaries are enabled
+- `npm run load-check` — static "would Chrome load this?" check (manifest + referenced files + config keys)
+- `npm run package-check` — release smoke: build zip → verify integrity → extract → load-check the extracted tree (skips if zip/unzip missing)
+- `npm run check` — runs all five above
+
+## Security model (enforced in `backend/security.py`)
+
+- **Allow-list of binaries**: npm, npx, node, yarn, pnpm, python(3), pip(3),
+  pytest, uv, git, cargo, rustc, go, mvn, gradle, java, make, ls, cat, echo, pwd.
+- **Blocked tokens**: `&&`, `||`, `;`, `|`, `>`, `<`, `` ` ``, `$(`,
+  `rm -rf`, `sudo`, `chmod 777`, `mkfs`, `:(){`, `curl `, `wget `.
+- **Blocked flags**: `--privileged`, `--no-preserve-root`.
+- **Path traversal**: `safe_resolve(workdir, rel_path)` rejects any path
+  resolving outside the active project root → HTTP 403.
+- **Default timeout**: 60 s for `/execute` and `/run_tests`.
+- **Network**: bound to `127.0.0.1:8765` only, no auth (intentional — local-only).
+
+## State machine + crash recovery
+
+- States: `IDLE → PLANNING → CODING → TESTING → DEBUGGING → COMMITTING → DONE`
+  (with `WAITING_APPROVAL` interrupts).
+- Service worker checkpoints `STATE` to `chrome.storage.local` every 5 s.
+- Backend mirrors session memory to `memory/session_memory.json`.
+- On startup, the snapshot is restored — survives Chrome service-worker
+  suspension and full browser restarts.
+
+## Documentation discipline (HABIT)
+
+Every feature added in this session has been documented in the same response:
+
+- Token budgeter → Routing matrix + tokenManager reference + budget script
+- Makefile targets → README "Quick start" section
+- Backend endpoints → 22-row reference table
+- Testing engine → detection × framework × command table + result-event schema
+- Security → 4 tables (allowed / blocked tokens / blocked flags / path-traversal code)
+- Troubleshooting → 17-row symptom × cause × fix × source-file lookup table
+- CI consolidation → README Contributing section
+- Architecture → `docs/architecture.md` with Mermaid diagrams
+
+**Rule for future agents**: any new feature, script, endpoint, or config
+key MUST update README.md (and this file if it changes the project shape)
+in the same response. No silent additions.
+
+## Tests currently green
+
+- `extension/tests/tokenBudget.test.js` — 10/10
+- `npm run check-selectors` — 4/4 adapters have all required selector arrays
+- `npm run snapshot-config` — routing matrix consistent, all primaries enabled
+- `backend/test_smoke.py` — passes when python3 is available (skipped on
+  this Replit env, which has no python3)
+
+## Things NOT to touch
+
+- `artifacts/api-server/` and `artifacts/mockup-sandbox/` — unrelated
+  scaffold workflows from the Replit template, not part of this project.
+- `.replit` artifact registration for those scaffolds — leaving them as-is.
+
+## User preferences
+
+- Communication: bilingual — Hindi/Urdu Roman script for chat,
+  English for all code and documentation.
+- Quality bar: "no duplicates, no conflicts, no errors, no incomplete".
+- Documentation bar: "everyone should have information for all features
+  and functions, how it works, and how it's implemented" — hence the
+  table-heavy reference style throughout README.md.

@@ -9,7 +9,7 @@ import { Logger } from "./logger.js";
 import { budgetPrompt } from "./tokenManager.js";
 
 export class AgentLoop {
-  constructor({ backendUrl = "http://localhost:8000", maxIterations = 25, maxRetries = 3, stepTimeoutMs = 120000 } = {}) {
+  constructor({ backendUrl = "http://127.0.0.1:8765", maxIterations = 25, maxRetries = 3, stepTimeoutMs = 120000 } = {}) {
     this.backendUrl = backendUrl;
     this.maxIterations = maxIterations;
     this.maxRetries = maxRetries;

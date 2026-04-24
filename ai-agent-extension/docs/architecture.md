@@ -21,7 +21,7 @@ graph TB
         ADAPTERS[Adapters\nchatgpt / deepseek / qwen / gemini]
     end
 
-    subgraph Python["Python Backend (port 8000)"]
+    subgraph Python["Python Backend (port 8765)"]
         SERVER[server.py\nFastAPI REST + WebSocket]
         SECURITY[security.py\nCommand Sandbox]
         AI_ROUTER[ai_router.py\nModel Router]
@@ -186,7 +186,7 @@ ai-agent-extension/
 │   ├── config.json          # Central config (providers, routing, limits)
 │   └── manifest.json        # MV3 manifest
 │
-├── backend/                 # Python FastAPI backend (port 8000)
+├── backend/                 # Python FastAPI backend (port 8765)
 │   ├── server.py            # 22+ REST endpoints + WebSocket /ws
 │   ├── security.py          # Binary allow-list + token blocks
 │   ├── project_manager.py   # File ops + watchdog watcher
@@ -243,6 +243,6 @@ This ensures task continuity across browser crashes and extension reloads.
 | `storage`        | Checkpoint + config override persistence        |
 | `scripting`      | Inject prompts + read responses from AI pages   |
 | `activeTab`      | Focus the active provider tab                   |
-| `http://localhost:8000/*` | Communicate with Python backend        |
-| `ws://localhost:8000/*`   | WebSocket stream from backend          |
+| `http://localhost:8765/*` | Communicate with Python backend        |
+| `ws://localhost:8765/*`   | WebSocket stream from backend          |
 | `https://chatgpt.com/*` etc. | Read/write provider DOM            |

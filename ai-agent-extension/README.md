@@ -33,7 +33,7 @@ Panel UI (ui/panel.html)
 background.js (Service Worker)
  │  chrome.scripting         │  HTTP / WebSocket
  ▼                           ▼
-content.js              Python Backend (port 8000)
+content.js              Python Backend (port 8765)
 adapters/               ├── security.py (command sandbox)
  ├── chatgpt.js         ├── project_manager.py + watchdog
  ├── deepseek.js        ├── ai_router.py
@@ -66,7 +66,7 @@ Full Mermaid diagrams: [`docs/architecture.md`](docs/architecture.md)
 cd backend
 pip install -r requirements.txt
 python server.py
-# Backend starts on http://127.0.0.1:8000
+# Backend starts on http://127.0.0.1:8765
 ```
 
 ### 2. Load the Chrome extension
@@ -203,8 +203,8 @@ On restart/crash, the worker restores the state automatically and resumes the ta
 
 ```jsonc
 {
-  "backendUrl": "http://localhost:8000",
-  "wsUrl": "ws://localhost:8000/ws",
+  "backendUrl": "http://127.0.0.1:8765",
+  "wsUrl": "ws://127.0.0.1:8765/ws",
 
   "providers": {
     "chatgpt":  { "url": "https://chatgpt.com/",          "enabled": true },
@@ -314,7 +314,7 @@ On restart/crash, the worker restores the state automatically and resumes the ta
 
 | Path | Description |
 |------|-------------|
-| `ws://localhost:8000/ws` | Real-time event stream (state, file changes, output) |
+| `ws://127.0.0.1:8765/ws` | Real-time event stream (state, file changes, output) |
 
 ---
 

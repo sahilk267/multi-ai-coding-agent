@@ -2,7 +2,7 @@
 import { ToolRegistry } from "./toolRegistry.js";
 
 export class Executor {
-  constructor({ backendUrl = "http://localhost:8000" } = {}) {
+  constructor({ backendUrl = "http://127.0.0.1:8765" } = {}) {
     this.registry = new ToolRegistry(backendUrl);
   }
 
