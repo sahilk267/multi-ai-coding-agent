@@ -1,59 +1,36 @@
 import AIAdapter from "./baseAdapter.js";
 
-const utils = {
-  findFirst: (sels) => sels.map(s => document.querySelector(s)).find(Boolean) || null,
-  setNativeValue: (el, val) => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(el, val);
-  },
-  setContentEditable: (el, val) => { el.textContent = val; },
-  clipboardPaste: async () => false,
-  sleep: (ms) => new Promise(r => setTimeout(r, ms)),
-  waitFor: (fn, { timeout = 30000, interval = 500 } = {}) => {
-    return new Promise((resolve, reject) => {
-      const start = Date.now();
-      const check = () => {
-        if (fn()) return resolve(true);
-        if (Date.now() - start > timeout) return reject(new Error("waitFor timeout"));
-        setTimeout(check, interval);
-      };
-      check();
-    });
-  },
-  waitForStable: (fn, { settleMs = 1500, timeout = 60000 } = {}) => {
-    return new Promise((resolve) => {
-      let last = "";
-      let stableAt = null;
-      const start = Date.now();
-      const check = () => {
-        const cur = fn();
-        if (cur !== last) { last = cur; stableAt = Date.now(); }
-        if (stableAt && Date.now() - stableAt >= settleMs && cur) return resolve(cur);
-        if (Date.now() - start > timeout) return resolve(cur);
-        setTimeout(check, 500);
-      };
-      check();
-    });
-  },
-};
-
-export class QwenAdapter extends AIAdapter {
-  constructor() {
-    super(utils);
+export default class QwenAdapter extends AIAdapter {
+  constructor(utils) {
+    super(utils || _stubUtils);
     this.name = "qwen";
     this.selectors = {
-      input: ["textarea", ".input-area textarea", "#user-input"],
-      sendButton: ["button[type='submit']", ".send-button", "[aria-label='Send']"],
-      responseContainer: [".markdown-body", ".message-text", ".response-content"],
-      lastResponse: [".markdown-body p", ".message-text"],
-      spinner: [".typing-indicator", "[class*='loading']", ".ellipsis"],
-      loginIndicator: [".login-btn"],
-      captcha: [".captcha"],
-      rateLimit: [".rate-limit"],
+      input: ["textarea", ".input-area textarea", "#user-input", "div[contenteditable='true']"],
+      sendButton: ["button[type='submit']", ".send-button", "[aria-label='Send']", "button.send"],
+      responseContainer: [".markdown-body", ".message-text", ".response-content", ".chat-message-list-item--assistant"],
+      lastResponse: [".markdown-body p", ".message-text", ".response-content p", ".message-content"],
+      spinner: [".typing-indicator", "[class*='loading']", ".ellipsis", ".thinking"],
+      loginIndicator: [".login-btn", "[href*='login']", "button[class*='login']"],
+      captcha: [".captcha", "#challenge-form"],
+      rateLimit: [".rate-limit", "[class*='rate']"],
     };
   }
 }
 
-export const qwenAdapter = new QwenAdapter();
-window.__adapters = window.__adapters || {};
-window.__adapters.qwen = qwenAdapter;
+const _stubUtils = {
+  findFirst: () => null,
+  findAll: () => [],
+  setNativeValue: () => {},
+  setContentEditable: () => {},
+  clipboardPaste: async () => false,
+  sleep: () => Promise.resolve(),
+  waitFor: async () => true,
+  waitForStable: async () => "",
+};
+
+export const qwenAdapter = new QwenAdapter(_stubUtils);
+
+if (typeof window !== "undefined") {
+  window.__adapters = window.__adapters || {};
+  window.__adapters.qwen = qwenAdapter;
+}

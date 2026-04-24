@@ -192,13 +192,73 @@ def project_index():
 
 @app.post("/project/summary")
 def project_summary(req: FileRead):
+    """
+    Return a structured code summary for a file: functions, classes, imports,
+    and top-level constants. Language detection by extension.
+    """
+    import re as _re
     active = pm.get_active()
     full = security.validate_path(req.path, str(active))
     if not full or not Path(full).exists():
         raise HTTPException(404, "not found")
-    content = Path(full).read_text(encoding="utf-8", errors="ignore")
+    try:
+        content = Path(full).read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
     lines = content.split("\n")
-    return {"path": req.path, "lines": len(lines), "summary": lines[0][:200] if lines else ""}
+    ext = Path(req.path).suffix.lower()
+    lang = {
+        ".py": "python", ".js": "javascript", ".ts": "typescript",
+        ".tsx": "typescript", ".jsx": "javascript", ".go": "go",
+        ".rs": "rust", ".java": "java", ".rb": "ruby", ".php": "php",
+        ".cpp": "cpp", ".c": "c", ".cs": "csharp",
+    }.get(ext, "unknown")
+
+    functions, classes, imports_, constants = [], [], [], []
+
+    if lang in ("python",):
+        for i, line in enumerate(lines, 1):
+            s = line.strip()
+            if s.startswith("def ") or s.startswith("async def "):
+                name = _re.split(r"[\s(]", s, 2)[1]
+                functions.append({"name": name, "line": i})
+            elif s.startswith("class "):
+                name = _re.split(r"[\s(:]", s, 2)[1]
+                classes.append({"name": name, "line": i})
+            elif s.startswith("import ") or s.startswith("from "):
+                imports_.append({"statement": s, "line": i})
+    elif lang in ("javascript", "typescript"):
+        fn_pat = _re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function")
+        cls_pat = _re.compile(r"(?:export\s+)?(?:default\s+)?class\s+(\w+)")
+        import_pat = _re.compile(r"^import\s")
+        const_pat = _re.compile(r"^(?:export\s+)?const\s+([A-Z][A-Z0-9_]+)\s*=")
+        for i, line in enumerate(lines, 1):
+            s = line.strip()
+            m = fn_pat.search(s)
+            if m:
+                name = m.group(1) or m.group(2) or m.group(3)
+                if name:
+                    functions.append({"name": name, "line": i})
+            m = cls_pat.search(s)
+            if m:
+                classes.append({"name": m.group(1), "line": i})
+            if import_pat.match(s):
+                imports_.append({"statement": s[:120], "line": i})
+            m = const_pat.match(s)
+            if m:
+                constants.append({"name": m.group(1), "line": i})
+
+    return {
+        "path": req.path,
+        "language": lang,
+        "lines": len(lines),
+        "functions": functions,
+        "classes": classes,
+        "imports": imports_,
+        "constants": constants,
+        "size_bytes": Path(full).stat().st_size,
+    }
 
 # ── File Ops ───────────────────────────────────────────────────────────────────
 

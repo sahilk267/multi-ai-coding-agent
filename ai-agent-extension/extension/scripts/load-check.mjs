@@ -65,9 +65,21 @@ if (manifest) {
     for (const js of cs.js || []) fileMustExist(js, "content_scripts.js");
   }
 
-  // web-accessible resources
+  // web-accessible resources — skip glob patterns (ui/*, icons/*)
   for (const block of manifest.web_accessible_resources || []) {
     for (const res of block.resources || []) {
+      if (res.includes("*")) {
+        // glob — just verify the directory prefix exists
+        const dir = res.split("/").slice(0, -1).join("/");
+        if (dir) {
+          const { existsSync: _ex } = await import("node:fs");
+          const { join: _join } = await import("node:path");
+          if (!_ex(_join(ROOT, dir))) {
+            errors.push(`web_accessible_resources: glob prefix dir '${dir}/' not found`);
+          }
+        }
+        continue;
+      }
       fileMustExist(res, "web_accessible_resources");
     }
   }

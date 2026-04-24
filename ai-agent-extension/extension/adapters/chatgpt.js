@@ -1,61 +1,38 @@
 import AIAdapter from "./baseAdapter.js";
 
-const utils = {
-  findFirst: (sels) => sels.map(s => document.querySelector(s)).find(Boolean) || null,
-  setNativeValue: (el, val) => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(el, val);
-  },
-  setContentEditable: (el, val) => { el.textContent = val; },
-  clipboardPaste: async () => false, // fallback: use setNativeValue
-  sleep: (ms) => new Promise(r => setTimeout(r, ms)),
-  waitFor: (fn, { timeout = 30000, interval = 500 } = {}) => {
-    return new Promise((resolve, reject) => {
-      const start = Date.now();
-      const check = () => {
-        if (fn()) return resolve(true);
-        if (Date.now() - start > timeout) return reject(new Error("waitFor timeout"));
-        setTimeout(check, interval);
-      };
-      check();
-    });
-  },
-  waitForStable: (fn, { settleMs = 1500, timeout = 60000 } = {}) => {
-    return new Promise((resolve) => {
-      let last = "";
-      let stableAt = null;
-      const start = Date.now();
-      const check = () => {
-        const cur = fn();
-        if (cur !== last) { last = cur; stableAt = Date.now(); }
-        if (stableAt && Date.now() - stableAt >= settleMs && cur) return resolve(cur);
-        if (Date.now() - start > timeout) return resolve(cur);
-        setTimeout(check, 500);
-      };
-      check();
-    });
-  },
-};
-
-export class ChatGPTAdapter extends AIAdapter {
-  constructor() {
-    super(utils);
+export default class ChatGPTAdapter extends AIAdapter {
+  constructor(utils) {
+    super(utils || _stubUtils);
     this.name = "chatgpt";
     this.selectors = {
-      input: ["#prompt-textarea", "textarea[data-id='root']"],
-      sendButton: ['[data-testid="send-button"]', 'button[aria-label="Send prompt"]'],
-      responseContainer: ["[data-message-author-role='assistant']"],
-      lastResponse: ["[data-message-author-role='assistant'] .markdown", "[data-message-author-role='assistant'] p"],
-      spinner: ['[data-testid="stop-button"]', ".result-streaming"],
-      loginIndicator: ['[data-testid="login-button"]'],
+      input: ["#prompt-textarea", "textarea[data-id='root']", "div[contenteditable='true'][data-placeholder]"],
+      sendButton: ['[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]'],
+      responseContainer: ["[data-message-author-role='assistant']", ".group\\/conversation-turn"],
+      lastResponse: ["[data-message-author-role='assistant'] .markdown", "[data-message-author-role='assistant'] p", "[data-message-author-role='assistant']"],
+      spinner: ['[data-testid="stop-button"]', ".result-streaming", '[aria-label="Stop generating"]'],
+      loginIndicator: ['[data-testid="login-button"]', 'a[href="/auth/login"]', '[class*="login"]'],
       captcha: [".captcha", "#challenge-form"],
-      rateLimit: ['[data-testid="rate-limit-message"]'],
+      rateLimit: ['[data-testid="rate-limit-message"]', '[class*="rate-limit"]'],
     };
   }
 }
 
-export const chatgptAdapter = new ChatGPTAdapter();
+// Minimal stub so the class can be instantiated in Node (check-selectors script)
+const _stubUtils = {
+  findFirst: () => null,
+  findAll: () => [],
+  setNativeValue: () => {},
+  setContentEditable: () => {},
+  clipboardPaste: async () => false,
+  sleep: () => Promise.resolve(),
+  waitFor: async () => true,
+  waitForStable: async () => "",
+};
 
-// Legacy compatibility — content.js uses these globals
-window.__adapters = window.__adapters || {};
-window.__adapters.chatgpt = chatgptAdapter;
+export const chatgptAdapter = new ChatGPTAdapter(_stubUtils);
+
+// Browser-only: register on window
+if (typeof window !== "undefined") {
+  window.__adapters = window.__adapters || {};
+  window.__adapters.chatgpt = chatgptAdapter;
+}

@@ -1,0 +1,25 @@
+# CODEOWNERS — every PR requires review from at least one owner.
+# Syntax: <path> <owner-github-handle>
+# Replace @your-org/core-team with your actual team/user.
+
+# Default: all files
+*                              @your-org/core-team
+
+# Chrome extension
+/extension/manifest.json       @your-org/extension-lead
+/extension/background.js       @your-org/extension-lead
+/extension/content.js          @your-org/extension-lead
+/extension/adapters/           @your-org/extension-lead
+/extension/core/               @your-org/extension-lead
+
+# Python backend
+/backend/                      @your-org/backend-lead
+/backend/security.py           @your-org/security-lead @your-org/backend-lead
+
+# CI / release
+/.github/                      @your-org/devops-lead
+/Makefile                      @your-org/devops-lead
+
+# Docs
+/docs/                         @your-org/core-team
+/README.md                     @your-org/core-team

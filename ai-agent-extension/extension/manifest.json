@@ -16,7 +16,12 @@
     "https://chat.qwen.ai/*",
     "https://gemini.google.com/*",
     "http://localhost/*",
-    "ws://localhost/*"
+    "http://localhost:8000/*",
+    "http://127.0.0.1/*",
+    "http://127.0.0.1:8000/*",
+    "ws://localhost/*",
+    "ws://localhost:8000/*",
+    "ws://127.0.0.1:8000/*"
   ],
   "background": {
     "service_worker": "background.js",

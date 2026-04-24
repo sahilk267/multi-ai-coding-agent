@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-extension:
+    name: Build & Package Extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full CI suite
+        run: |
+          node scripts/load-check.mjs
+          node scripts/check-selectors.mjs
+          node scripts/snapshot-config.mjs
+          node --test core/tokenManager.test.mjs
+          node scripts/package-check.mjs
+
+      - name: Zip extension
+        run: |
+          VERSION="${{ github.ref_name }}"
+          ZIP="multi-ai-agent-${VERSION}.zip"
+          zip -r "../${ZIP}" . \
+            --exclude "*.test.*" \
+            --exclude "scripts/*" \
+            --exclude "node_modules/*" \
+            --exclude ".DS_Store"
+          echo "ZIP=${ZIP}" >> $GITHUB_ENV
+        working-directory: extension
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ github.ref_name }}
+          path: ${{ env.ZIP }}
+          retention-days: 90
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP }}
+          generate_release_notes: true
+          body: |
+            ## Multi-AI Autonomous Coding Agent ${{ github.ref_name }}
+
+            ### Install
+            1. Download `${{ env.ZIP }}`
+            2. Unzip to a local directory
+            3. Open `chrome://extensions` → Enable Developer mode
+            4. Click **Load unpacked** → select the unzipped directory
+            5. Start the Python backend: `cd backend && python server.py`
+
+            ### What's new
+            See the auto-generated release notes below.
