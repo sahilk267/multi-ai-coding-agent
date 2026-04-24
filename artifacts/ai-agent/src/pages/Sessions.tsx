@@ -124,12 +124,12 @@ export function Sessions() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-mono text-muted-foreground">Project (optional)</Label>
-                <Select value={form.projectId} onValueChange={v => setForm(f => ({ ...f, projectId: v }))}>
+                <Select value={form.projectId || "__none__"} onValueChange={v => setForm(f => ({ ...f, projectId: v === "__none__" ? "" : v }))}>
                   <SelectTrigger className="font-mono">
                     <SelectValue placeholder="No project" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="" className="font-mono">No project</SelectItem>
+                    <SelectItem value="__none__" className="font-mono">No project</SelectItem>
                     {projects?.map(p => (
                       <SelectItem key={p.id} value={String(p.id)} className="font-mono">{p.name}</SelectItem>
                     ))}
