@@ -423,6 +423,114 @@ python -c "from security import SecurityManager; print('ok')"
 
 ---
 
+## Testing Engine
+
+`POST /run_tests` auto-detects the project framework and runs the matching command.
+The first match wins (top-to-bottom). Override with `.agent-test-config.json`.
+
+| Detection (file in project root) | Framework | Command |
+|---|---|---|
+| `.agent-test-config.json` | `custom`* | `command` from the file |
+| `package.json` | `node` | `npm test --silent` |
+| `pytest.ini` / `pyproject.toml` / any `test_*.py` | `python` | `pytest -q` |
+| `Cargo.toml` | `rust` | `cargo test --quiet` |
+| `go.mod` | `go` | `go test ./...` |
+| `pom.xml` | `maven` | `mvn -q test` |
+| `build.gradle` / `build.gradle.kts` | `gradle` | `gradle test --quiet` |
+| *(none of the above)* | — | `"no test framework detected"` |
+
+\* The `framework` key inside `.agent-test-config.json` overrides `"custom"` when set.
+
+**Per-project override:**
+```json
+{ "command": "make test", "framework": "make" }
+```
+
+**WebSocket result event shape:**
+```json
+{
+  "ok": true,
+  "framework": "python",
+  "code": 0,
+  "stdout": "...",
+  "stderr": "...",
+  "failures": [{"file": "test_x.py", "test": "test_foo", "framework": "pytest"}],
+  "trace": []
+}
+```
+
+Failures and stack traces are parsed into structured arrays so the debugging loop can route them to Qwen with context. Default timeout is 60 s; overrun returns `code: -1, stderr: "timeout"`.
+
+---
+
+## File Watcher
+
+`watchdog` watches the active project directory recursively (excluding `node_modules`, `dist`, `build`, `.git`) and emits `file_external_update` over WebSocket whenever a file changes outside the agent — keeping the IDE panel in sync with edits made by other tools.
+
+---
+
+## Troubleshooting
+
+Match the symptom, follow the fix. Rightmost column is the source file to edit.
+
+| Symptom | Likely cause | Fix | Source |
+|---|---|---|---|
+| Popup shows **"BACKEND OFFLINE"** | uvicorn not running or port 8765 in use | `make run`; confirm `curl http://127.0.0.1:8765/` returns `{"ok":true}` | `backend/server.py` |
+| Backend logs `Address already in use` | another process on 8765 | `lsof -i :8765` and kill it, or change port and update `config.json` | OS / `config.json` |
+| WS panel says **"reconnecting…"** forever | WS URL mismatch or extension permissions revoked | Check `wsUrl` in `config.json`; reload extension at `chrome://extensions` | `core/websocket.js` |
+| Provider tab: **"not logged in"** or **"captcha"** | session expired or Cloudflare challenge | Open URL manually, complete login/captcha; router auto-falls back | `adapters/<provider>.js` |
+| Agent picks **wrong provider** | `routing.<task_kind>` misconfigured or primary disabled | `npm run snapshot-config` flags it; edit `routing` in `config.json` | `config.json` |
+| Selectors stopped matching after UI redesign | site changed CSS / `data-testid` / `aria-label` | Inspect new DOM, prepend new selector in adapter array, run `check-selectors` | `adapters/<provider>.js` |
+| Prompt **silently truncated** | budget exceeded — expected | Check log `prompt truncated for <provider>: N tokens dropped`; raise `modelLimits` | `core/tokenManager.js` |
+| `InputEvent` not registering on contenteditable | custom editor (Quill, Lexical, ProseMirror) | Base adapter tries clipboard paste → `execCommand` → native setter; tweak `_typeIntoInput` | `content.js` |
+| `/execute` returns **"Binary not allow-listed"** | binary not in security allow-list | Use an allow-listed equivalent or add to `ALLOWED_BINARIES` in `security.py` | `backend/security.py` |
+| `/execute` returns **"Forbidden token"** | command contains `&&`, `;`, `\|`, redirect, etc. | Split into multiple `/execute` calls — chaining is blocked by design | `backend/security.py` |
+| `/run_tests` says **"no test framework detected"** | no recognised config file in project root | Drop `.agent-test-config.json` with `{"command":"...","framework":"..."}` | `backend/test_runner.py` |
+| Test run: `code: -1, stderr: "timeout"` | suite exceeded 60 s | Increase `timeout` in executor request, or split the suite | `backend/test_runner.py` |
+| File-watcher events not arriving | path mismatch after project switch | `POST /project/select` re-initialises watchdog; check panel logs for `file_external_update` | `backend/project_manager.py` |
+| `/git/commit` fails **"please tell me who you are"** | git identity unset | `git config --global user.email "you@local"` + `git config --global user.name "You"` | git |
+| Service worker **suspended** mid-loop | Chrome unloaded idle worker | 5-s checkpoint restores state on next message; check `chrome://serviceworker-internals` | `background.js` |
+| Approval queue **stuck** | panel was closed; worker is waiting | Re-open popup → IDE panel; pending approvals re-broadcast on connect | `ui/panel.js` |
+| `make verify` fails **"missing separator"** | Makefile tabs converted to spaces | Re-save with tabs or `git checkout Makefile` | `Makefile` |
+
+---
+
+## Selector-Update Guide
+
+When a provider ships a UI change, update its adapter under `extension/adapters/<provider>.js`.
+
+Each adapter's `selectors` object has these required groups:
+
+```js
+this.selectors = {
+  input:             [ /* CSS / aria-label / data-testid options, most-specific first */ ],
+  sendButton:        [ /* ... */ ],
+  responseContainer: [ /* ... */ ],
+  lastResponse:      [ /* ... */ ],
+  spinner:           [ /* ... */ ],
+  loginIndicator:    [ /* ... */ ],
+  captcha:           [ /* ... */ ],
+  rateLimit:         [ /* ... */ ],
+};
+```
+
+1. Open DevTools on the provider page and inspect the new element.
+2. Prepend the new selector to the front of the relevant array (keeps the newest selector tried first).
+3. Run `npm run check-selectors` — exits non-zero if any required group is empty.
+4. Run `npm run load-check` to confirm the manifest is still consistent.
+5. Commit. CI runs both checks on every push.
+
+---
+
+## Security Warnings
+
+- This agent **executes shell commands** in the active project directory. Only run it on projects you trust, in a user account without privileged write access to the rest of your system.
+- The Chrome extension talks to `localhost:8765` over plain HTTP. Do not expose this port to your network. Always bind to `127.0.0.1` (the default).
+- The extension automates third-party AI websites. This may violate those providers' terms of service. Use at your own risk.
+- Never run `docker compose up` with the port binding changed to `0.0.0.0` — the backend has no authentication and must stay loopback-only.
+
+---
+
 ## CI / CD
 
 GitHub Actions workflows:
