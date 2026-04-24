@@ -2,103 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      width: 360px;
-      min-height: 200px;
-      background: #0a0a0f;
-      color: #e2e8f0;
-      font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      font-size: 13px;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 16px;
-      border-bottom: 1px solid #1e1e2e;
-      background: #0d0d1a;
-    }
-    .logo {
-      font-size: 15px;
-      font-weight: 700;
-      color: #3b82f6;
-      letter-spacing: -0.5px;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      margin-left: auto;
-    }
+    body { width: 360px; background: #0a0a0f; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+    .header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #1e1e2e; background: #0d0d1a; }
+    .logo { font-size: 15px; font-weight: 700; color: #3b82f6; letter-spacing: -0.5px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; }
     .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e80; }
     .status-dot.disconnected { background: #ef4444; }
     .body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
     .field { display: flex; flex-direction: column; gap: 4px; }
     label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
-    select, input, textarea {
-      background: #1e1e2e;
-      border: 1px solid #2d2d3e;
-      color: #e2e8f0;
-      padding: 7px 10px;
-      border-radius: 6px;
-      font-family: inherit;
-      font-size: 12px;
-      outline: none;
-      width: 100%;
-    }
+    select, input, textarea { background: #1e1e2e; border: 1px solid #2d2d3e; color: #e2e8f0; padding: 7px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; outline: none; width: 100%; }
     select:focus, input:focus, textarea:focus { border-color: #3b82f6; }
-    textarea { min-height: 80px; resize: vertical; line-height: 1.5; }
-    .btn {
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 600;
-      transition: all 0.15s;
-    }
+    textarea { min-height: 70px; resize: vertical; line-height: 1.5; }
+    .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; transition: all 0.15s; }
     .btn-primary { background: #3b82f6; color: white; }
     .btn-primary:hover { background: #2563eb; }
     .btn-primary:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }
-    .btn-outline {
-      background: transparent;
-      border: 1px solid #2d2d3e;
-      color: #94a3b8;
-    }
+    .btn-outline { background: transparent; border: 1px solid #2d2d3e; color: #94a3b8; }
     .btn-outline:hover { border-color: #3b82f6; color: #3b82f6; }
     .row { display: flex; gap: 8px; }
     .row .btn { flex: 1; }
-    .log {
-      background: #0d0d1a;
-      border: 1px solid #1e1e2e;
-      border-radius: 6px;
-      padding: 8px 10px;
-      font-size: 11px;
-      color: #64748b;
-      min-height: 40px;
-      max-height: 100px;
-      overflow-y: auto;
-    }
+    .log { background: #0d0d1a; border: 1px solid #1e1e2e; border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #64748b; min-height: 40px; max-height: 90px; overflow-y: auto; }
     .log-entry { margin-bottom: 2px; }
     .log-entry.info { color: #60a5fa; }
     .log-entry.success { color: #4ade80; }
     .log-entry.error { color: #f87171; }
-    .open-dashboard {
-      text-align: center;
-      padding: 8px;
-      border-top: 1px solid #1e1e2e;
-    }
-    .open-dashboard a {
-      color: #3b82f6;
-      font-size: 11px;
-      text-decoration: none;
-    }
-    .open-dashboard a:hover { text-decoration: underline; }
+    .links { display: flex; gap: 8px; padding: 8px 16px; border-top: 1px solid #1e1e2e; background: #0d0d1a; }
+    .links button { flex: 1; background: transparent; border: 1px solid #2d2d3e; color: #64748b; border-radius: 4px; padding: 5px; font-size: 11px; cursor: pointer; font-family: inherit; }
+    .links button:hover { border-color: #3b82f6; color: #3b82f6; }
   </style>
 </head>
 <body>
@@ -113,8 +47,8 @@
         <option value="auto">auto (smart routing)</option>
         <option value="deepseek">deepseek (coding)</option>
         <option value="qwen">qwen (debugging)</option>
-        <option value="gemini">gemini (fast tasks)</option>
-        <option value="chatgpt">chatgpt (fallback)</option>
+        <option value="gemini">gemini (fast / long context)</option>
+        <option value="chatgpt">chatgpt (planning / fallback)</option>
       </select>
     </div>
     <div class="field">
@@ -128,12 +62,13 @@
     <div class="field">
       <label>Log</label>
       <div class="log" id="logContainer">
-        <div class="log-entry">Connecting to backend...</div>
+        <div class="log-entry">Connecting to backend…</div>
       </div>
     </div>
   </div>
-  <div class="open-dashboard">
-    <a href="http://localhost:5173" target="_blank">Open Dashboard &rarr;</a>
+  <div class="links">
+    <button id="openPanel">Open Full IDE Panel</button>
+    <button id="openDashboard">Open Dashboard</button>
   </div>
   <script src="popup.js"></script>
 </body>

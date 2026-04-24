@@ -1,0 +1,18 @@
+{
+  "name": "ai-agent-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension for the browser-based multi-AI autonomous coding agent.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'no lint configured'",
+    "test": "node --test core/*.test.mjs",
+    "budget": "node scripts/budget.mjs",
+    "check-selectors": "node scripts/check-selectors.mjs",
+    "snapshot-config": "node scripts/snapshot-config.mjs",
+    "load-check": "node scripts/load-check.mjs",
+    "package-check": "node scripts/package-check.mjs",
+    "check": "npm test && npm run load-check && npm run check-selectors && npm run snapshot-config && npm run package-check",
+    "package": "zip -r ../ai-agent-extension.zip . -x 'node_modules/*' '*.zip'"
+  }
+}

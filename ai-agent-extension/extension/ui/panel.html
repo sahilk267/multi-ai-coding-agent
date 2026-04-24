@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AI Agent — IDE</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="panel">
+    <header class="topbar">
+      <div class="brand">AI Agent</div>
+      <div class="status">
+        <span>State:</span><span id="state">IDLE</span>
+        <span class="ws">WS</span><span id="ws-dot" class="dot"></span>
+      </div>
+      <div class="controls">
+        <button id="btn-pause">Pause</button>
+        <button id="btn-resume">Resume</button>
+        <button id="btn-stop" class="danger">Stop</button>
+      </div>
+    </header>
+    <main class="grid">
+      <aside class="files">
+        <h3>Files</h3>
+        <div id="cwd"></div>
+        <ul id="file-tree"></ul>
+      </aside>
+
+      <section class="center">
+        <div class="tabs">
+          <button class="tab active" data-tab="chat">Chat</button>
+          <button class="tab" data-tab="plan">Plan</button>
+          <button class="tab" data-tab="diff">Diff</button>
+          <button class="tab" data-tab="approvals">Approvals <span id="approval-badge" class="badge hidden">0</span></button>
+          <button class="tab" data-tab="rejections">Rejections <span id="rejection-badge" class="badge hidden">0</span></button>
+        </div>
+        <div class="pane" id="pane-chat">
+          <div id="chat-log" class="chat-log"></div>
+          <div class="chat-input">
+            <textarea id="chat-text" placeholder="Type a goal or follow-up..."></textarea>
+            <button id="chat-send" class="primary">Send</button>
+          </div>
+        </div>
+        <div class="pane hidden" id="pane-plan">
+          <pre id="plan-view"></pre>
+        </div>
+        <div class="pane hidden" id="pane-diff">
+          <div class="diff-controls">
+            <button id="diff-mode-unified" class="active">Unified</button>
+            <button id="diff-mode-side">Side-by-side</button>
+            <span id="diff-path"></span>
+            <button id="diff-approve" class="primary">Approve</button>
+            <button id="diff-reject" class="danger">Reject</button>
+          </div>
+          <div id="diff-view"></div>
+        </div>
+        <div class="pane hidden" id="pane-approvals">
+          <div class="approvals-header">
+            <span>Pending approvals</span>
+            <label class="auto-approve-toggle">
+              <input type="checkbox" id="auto-approve" />
+              Auto-approve all (use with care)
+            </label>
+          </div>
+          <div id="approvals-list" class="approvals-list">
+            <div class="empty">No pending approvals.</div>
+          </div>
+        </div>
+        <div class="pane hidden" id="pane-rejections">
+          <div class="approvals-header">
+            <span>Past rejections (last 30 days)</span>
+            <button id="rej-refresh">Refresh</button>
+            <button id="rej-clear-all" class="danger">Forgive all</button>
+          </div>
+          <div id="rejections-list" class="approvals-list">
+            <div class="empty">Loading…</div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="logs">
+        <h3>Logs</h3>
+        <div class="log-filters">
+          <label><input type="checkbox" data-level="DEBUG" /> DEBUG</label>
+          <label><input type="checkbox" data-level="INFO" checked /> INFO</label>
+          <label><input type="checkbox" data-level="WARN" checked /> WARN</label>
+          <label><input type="checkbox" data-level="ERROR" checked /> ERROR</label>
+        </div>
+        <div id="log-view"></div>
+        <h3>Tasks</h3>
+        <ul id="task-tree"></ul>
+      </aside>
+    </main>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

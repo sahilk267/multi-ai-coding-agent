@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Multi-AI Autonomous Coding Agent",
   "version": "1.0.0",
-  "description": "Browser-based multi-AI autonomous coding agent using web AI interfaces",
+  "description": "Browser-based multi-AI autonomous coding agent — no API key required",
   "permissions": [
     "tabs",
     "storage",
@@ -10,11 +10,13 @@
     "activeTab"
   ],
   "host_permissions": [
+    "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://chat.deepseek.com/*",
     "https://chat.qwen.ai/*",
     "https://gemini.google.com/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "ws://localhost/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -31,6 +33,7 @@
   "content_scripts": [
     {
       "matches": [
+        "https://chatgpt.com/*",
         "https://chat.openai.com/*",
         "https://chat.deepseek.com/*",
         "https://chat.qwen.ai/*",
@@ -42,7 +45,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["ui/*"],
+      "resources": ["ui/*", "config.json"],
       "matches": ["<all_urls>"]
     }
   ]

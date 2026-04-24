@@ -1,75 +1,119 @@
 """
-Multi-AI Autonomous Coding Agent - FastAPI Backend
-Handles file operations, command execution, git, and tests
-Run with: uvicorn server:app --reload --port 8000
+Multi-AI Autonomous Coding Agent — FastAPI Backend
+Fully merged: file ops, command execution (streaming), WebSocket, git, tests,
+named memory, state machine, routing config, project management, approval history.
+
+Run: uvicorn backend.server:app --reload --port 8000
+  or: uvicorn server:app --reload --port 8000  (from inside backend/)
 """
 
-from fastapi import FastAPI, HTTPException
+import asyncio
+import json
+import os
+import subprocess
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List, Any
-import logging
-import os
 
-from project_manager import ProjectManager
-from file_indexer import FileIndexer
-from test_runner import TestRunner
-from git_manager import GitManager
-from security import SecurityManager
+from .ai_router import get_routing_config
+from .file_indexer import FileIndexer
+from .git_manager import GitManager
+from .logger import get_logger
+from .project_manager import ProjectManager
+from .security import SecurityManager
+from .test_runner import TestRunner
+from .websocket_manager import ws_manager
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
+log = get_logger("server")
 
-app = FastAPI(
-    title="Multi-AI Coding Agent API",
-    description="Backend for the autonomous coding agent",
-    version="1.0.0",
-)
+ROOT = Path(__file__).resolve().parent.parent
+PROJECTS_ROOT = ROOT / "projects"
+MEMORY_DIR = ROOT / "memory"
+PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Initialize managers
-security = SecurityManager()
-project_manager = ProjectManager(base_path=os.environ.get("PROJECTS_ROOT", "./projects"))
+security = SecurityManager(str(PROJECTS_ROOT))
+pm = ProjectManager(str(PROJECTS_ROOT))
 test_runner = TestRunner()
 git_manager = GitManager()
 file_indexer = FileIndexer()
 
-# ─────────── Request/Response Models ───────────
+app = FastAPI(title="AI Agent Backend", version="1.0.0")
 
-class WriteFileRequest(BaseModel):
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
+
+# ── Agent state ────────────────────────────────────────────────────────────────
+VALID_STATES = {"IDLE", "PLANNING", "EXECUTING", "WAITING_APPROVAL", "FIXING", "PAUSED", "DONE", "FAILED"}
+STATE: Dict[str, Any] = {
+    "agent_state": "IDLE",
+    "current_task_id": None,
+    "cancel_requested": False,
+    "started_at": None,
+}
+RUNNING_PROCS: Dict[str, subprocess.Popen] = {}
+MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+ALLOWED_MEMORY = {"long_term_memory", "session_memory", "error_memory", "approval_history"}
+
+
+@app.on_event("startup")
+async def _capture_loop():
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
+
+
+def _schedule(coro):
+    loop = MAIN_LOOP
+    if loop and not loop.is_closed():
+        try: asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError: pass
+
+
+def _set_state(s: str):
+    STATE["agent_state"] = s
+    _schedule(ws_manager.broadcast("status", {"state": s}))
+
+
+# ── Pydantic models ────────────────────────────────────────────────────────────
+
+class ProjectSelect(BaseModel):
+    name: str
+
+class FileRead(BaseModel):
+    path: str
+
+class FileWrite(BaseModel):
     path: str
     content: str
     create_dirs: bool = True
 
-class ReadFileRequest(BaseModel):
-    path: str
+class FileList(BaseModel):
+    path: Optional[str] = ""
 
-class ExecuteRequest(BaseModel):
-    command: str
-    timeout: int = 30
-    cwd: Optional[str] = None
+class ExecuteCmd(BaseModel):
+    cmd: str
+    timeout: int = 60
+    task_id: Optional[str] = None
 
-class CreateProjectRequest(BaseModel):
-    name: str
-    path: Optional[str] = None
-    language: Optional[str] = None
-    description: Optional[str] = None
+class GitCommit(BaseModel):
+    message: str = "agent commit"
 
-class GitCommitRequest(BaseModel):
-    message: str
+class GitRollback(BaseModel):
+    sha: Optional[str] = None
 
-class MemoryEntry(BaseModel):
-    type: str
-    key: str
-    value: str
-    project_id: Optional[int] = None
+class MemoryWrite(BaseModel):
+    file: str
+    data: Any
 
 class CreateSessionRequest(BaseModel):
     goal: str
@@ -77,183 +121,262 @@ class CreateSessionRequest(BaseModel):
     project_id: Optional[int] = None
 
 
-# ─────────── Health ───────────
+# ── Sessions in-memory ─────────────────────────────────────────────────────────
+sessions_store: List[dict] = []
+_session_counter = 0
+
+
+# ── Health / Status ────────────────────────────────────────────────────────────
+
+@app.get("/")
+def root():
+    return {"ok": True, "service": "ai-agent-backend", "version": "1.0.0"}
 
 @app.get("/health")
-def health_check():
+def health():
     return {"status": "ok", "version": "1.0.0"}
 
+@app.get("/status")
+def status():
+    return {
+        **STATE,
+        "active_project": pm.get_active_name(),
+        "projects": pm.list_projects(),
+    }
 
-# ─────────── Projects ───────────
-
-@app.get("/projects")
-def list_projects():
-    return project_manager.list_projects()
-
-@app.post("/projects")
-def create_project(req: CreateProjectRequest):
-    return project_manager.create_project(req.name, req.path, req.language, req.description)
-
-@app.get("/projects/{project_id}")
-def get_project(project_id: int):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+@app.get("/routing")
+def routing():
+    return get_routing_config()
 
 
-# ─────────── File Operations ───────────
+# ── Project ────────────────────────────────────────────────────────────────────
 
-@app.post("/write_file")
-def write_file(req: WriteFileRequest):
-    safe_path = security.validate_path(req.path)
-    if not safe_path:
-        raise HTTPException(status_code=400, detail="Invalid or unsafe file path")
-    
-    result = project_manager.write_file(safe_path, req.content, req.create_dirs)
-    return result
+@app.get("/project/list")
+def project_list():
+    return {"projects": pm.list_projects()}
+
+@app.post("/project/create")
+def project_create(p: ProjectSelect):
+    path = pm.create_project(p.name)
+    return {"ok": True, "path": str(path)}
+
+@app.post("/project/select")
+def project_select(p: ProjectSelect):
+    path = pm.set_active(p.name)
+    git_manager.init(str(path))
+    return {"ok": True, "active": str(path)}
+
+@app.get("/project/index")
+def project_index():
+    active = pm.get_active()
+    return file_indexer.index(str(active))
+
+@app.post("/project/summary")
+def project_summary(req: FileRead):
+    active = pm.get_active()
+    full = security.validate_path(req.path, str(active))
+    if not full or not Path(full).exists():
+        raise HTTPException(404, "not found")
+    content = Path(full).read_text(encoding="utf-8", errors="ignore")
+    lines = content.split("\n")
+    return {"path": req.path, "lines": len(lines), "summary": lines[0][:200] if lines else ""}
+
+# ── File Ops ───────────────────────────────────────────────────────────────────
 
 @app.post("/read_file")
-def read_file(req: ReadFileRequest):
-    safe_path = security.validate_path(req.path)
-    if not safe_path:
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    
-    result = project_manager.read_file(safe_path)
-    if result is None:
-        raise HTTPException(status_code=404, detail="File not found")
-    return {"path": req.path, "content": result}
+def read_file(req: FileRead):
+    active = pm.get_active()
+    full = security.validate_path(req.path, str(active))
+    if not full:
+        raise HTTPException(400, "invalid path (path traversal blocked)")
+    p = Path(full)
+    if not p.exists() or not p.is_file():
+        raise HTTPException(404, "not found")
+    try:
+        content = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "binary file")
+    return {"path": req.path, "content": content, "size": p.stat().st_size}
 
-@app.get("/list_files")
-def list_files(path: str = ".", project_id: Optional[int] = None):
-    base = project_manager.get_project_path(project_id) if project_id else project_manager.base_path
-    return {"files": project_manager.list_files(os.path.join(base, path))}
+
+@app.post("/write_file")
+async def write_file(req: FileWrite):
+    active = pm.get_active()
+    full = security.validate_path(req.path, str(active))
+    if not full:
+        raise HTTPException(400, "invalid path")
+    p = Path(full)
+    if req.create_dirs:
+        p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(req.content, encoding="utf-8")
+    await ws_manager.broadcast("file_written", {"path": req.path, "size": len(req.content)})
+    return {"ok": True, "path": req.path, "size": len(req.content)}
 
 
-# ─────────── Command Execution ───────────
+@app.post("/list_files")
+def list_files(req: FileList):
+    active = pm.get_active()
+    target = security.validate_path(req.path or "", str(active))
+    if not target:
+        raise HTTPException(400, "invalid path")
+    p = Path(target)
+    if not p.exists():
+        raise HTTPException(404, "not found")
+    entries = []
+    ignored = {"node_modules", ".git", "__pycache__", ".next", "dist", "build", ".venv", "venv"}
+    for c in sorted(p.iterdir()):
+        if c.name.startswith(".") or c.name in ignored:
+            continue
+        try:
+            entries.append({"name": c.name, "is_dir": c.is_dir(), "size": c.stat().st_size if c.is_file() else 0})
+        except OSError:
+            continue
+    return {"path": req.path or "", "entries": entries}
+
+
+# ── Execute (streaming via WebSocket) ─────────────────────────────────────────
 
 @app.post("/execute")
-def execute_command(req: ExecuteRequest):
-    if not security.is_command_safe(req.command):
-        raise HTTPException(status_code=400, detail="Command blocked by security policy")
-    
-    cwd = req.cwd or project_manager.base_path
-    safe_cwd = security.validate_path(cwd)
-    
-    result = project_manager.execute_command(req.command, safe_cwd, req.timeout)
+async def execute(req: ExecuteCmd):
+    ok, msg = security.is_command_safe(req.cmd)
+    if not ok:
+        await ws_manager.broadcast("error", {"source": "execute", "message": msg, "cmd": req.cmd})
+        raise HTTPException(400, msg)
+
+    cwd = pm.get_active()
+    task_id = req.task_id or uuid.uuid4().hex[:8]
+    STATE["current_task_id"] = task_id
+    STATE["cancel_requested"] = False
+    _set_state("EXECUTING")
+
+    await ws_manager.broadcast("command_started", {"task_id": task_id, "cmd": req.cmd})
+
+    proc = subprocess.Popen(
+        req.cmd, shell=True, cwd=str(cwd),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1,
+    )
+    RUNNING_PROCS[task_id] = proc
+    output_lines = []
+    start = time.time()
+
+    try:
+        while True:
+            if STATE.get("cancel_requested"):
+                proc.terminate()
+                try: proc.wait(timeout=3)
+                except subprocess.TimeoutExpired: proc.kill()
+                await ws_manager.broadcast("command_output", {"task_id": task_id, "line": "[CANCELLED]"})
+                break
+            if time.time() - start > req.timeout:
+                proc.terminate()
+                try: proc.wait(timeout=3)
+                except subprocess.TimeoutExpired: proc.kill()
+                await ws_manager.broadcast("command_output", {"task_id": task_id, "line": "[TIMEOUT]"})
+                break
+            line = proc.stdout.readline()
+            if not line:
+                if proc.poll() is not None:
+                    break
+                await asyncio.sleep(0.05)
+                continue
+            stripped = line.rstrip("\n")
+            output_lines.append(stripped)
+            await ws_manager.broadcast("command_output", {"task_id": task_id, "line": stripped})
+    finally:
+        RUNNING_PROCS.pop(task_id, None)
+        _set_state("IDLE")
+
+    code = proc.returncode if proc.returncode is not None else -1
+    await ws_manager.broadcast("command_finished", {"task_id": task_id, "code": code})
+    return {"ok": code == 0, "success": code == 0, "code": code, "task_id": task_id,
+            "stdout": "\n".join(output_lines)[-50000:], "stderr": "", "output": "\n".join(output_lines)[-50000:]}
+
+
+@app.post("/cancel")
+async def cancel():
+    STATE["cancel_requested"] = True
+    killed = []
+    for tid, proc in list(RUNNING_PROCS.items()):
+        try: proc.terminate(); killed.append(tid)
+        except Exception: pass
+    await ws_manager.broadcast("status", {"state": "PAUSED", "cancelled": killed})
+    return {"ok": True, "cancelled": killed}
+
+
+# ── Tests ──────────────────────────────────────────────────────────────────────
+
+@app.post("/run_tests")
+async def run_tests_endpoint():
+    cwd = pm.get_active()
+    _set_state("EXECUTING")
+    result = await asyncio.get_event_loop().run_in_executor(None, lambda: test_runner.run(str(cwd)))
+    _set_state("IDLE")
+    await ws_manager.broadcast("test_result", result)
     return result
 
 
-# ─────────── Package Installation ───────────
+# ── Git ────────────────────────────────────────────────────────────────────────
 
-@app.post("/install_package")
-def install_package(package: str, manager: str = "npm"):
-    managers = {
-        "npm": f"npm install {package}",
-        "pip": f"pip install {package}",
-        "pnpm": f"pnpm add {package}",
-        "yarn": f"yarn add {package}",
-    }
-    cmd = managers.get(manager, f"npm install {package}")
-    
-    if not security.is_command_safe(cmd):
-        raise HTTPException(status_code=400, detail="Install command blocked")
-    
-    return project_manager.execute_command(cmd, project_manager.base_path, 120)
+@app.post("/git/commit")
+async def git_commit(req: GitCommit):
+    result = git_manager.commit(str(pm.get_active()), req.message)
+    await ws_manager.broadcast("git", {"action": "commit", "ok": result["success"], "info": result.get("message", "")})
+    if not result["success"]:
+        raise HTTPException(500, result.get("message", "git commit failed"))
+    return {"ok": True, "sha": result.get("stdout", "")[:40]}
 
+@app.post("/git/rollback")
+async def git_rollback(req: GitRollback):
+    result = git_manager.rollback(str(pm.get_active()), steps=1)
+    await ws_manager.broadcast("git", {"action": "rollback", "ok": result["success"]})
+    if not result["success"]:
+        raise HTTPException(500, result.get("message", "rollback failed"))
+    return {"ok": True, "info": result.get("message", "")}
 
-# ─────────── Tests ───────────
-
-@app.post("/run_tests")
-def run_tests(project_id: Optional[int] = None):
-    cwd = project_manager.get_project_path(project_id) if project_id else project_manager.base_path
-    return test_runner.run(cwd)
-
-@app.post("/projects/{project_id}/tests")
-def run_project_tests(project_id: int):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return test_runner.run(project["path"], language=project.get("language"))
+@app.get("/git/log")
+def git_log_endpoint(n: int = 20):
+    result = git_manager.log(str(pm.get_active()), n)
+    if not result["success"]:
+        raise HTTPException(500, result.get("message", "git log failed"))
+    return {"ok": True, "log": result.get("commits", [])}
 
 
-# ─────────── Git ───────────
+# ── State ──────────────────────────────────────────────────────────────────────
 
-@app.post("/projects/{project_id}/git/init")
-def git_init(project_id: int):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return git_manager.init(project["path"])
-
-@app.post("/projects/{project_id}/git/commit")
-def git_commit(project_id: int, req: GitCommitRequest):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return git_manager.commit(project["path"], req.message)
-
-@app.post("/projects/{project_id}/git/rollback")
-def git_rollback(project_id: int, steps: int = 1):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return git_manager.rollback(project["path"], steps)
+@app.post("/state/{new_state}")
+async def set_state(new_state: str):
+    if new_state not in VALID_STATES:
+        raise HTTPException(400, f"invalid state '{new_state}'. Valid: {', '.join(VALID_STATES)}")
+    STATE["agent_state"] = new_state
+    await ws_manager.broadcast("status", {"state": new_state})
+    return {"ok": True, "state": new_state}
 
 
-# ─────────── File Indexer ───────────
+# ── Memory (named JSON files) ──────────────────────────────────────────────────
 
-@app.post("/projects/{project_id}/index")
-def index_project(project_id: int):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return file_indexer.index(project["path"])
+@app.get("/memory/{name}")
+def memory_get(name: str):
+    if name not in ALLOWED_MEMORY:
+        raise HTTPException(400, f"invalid memory file '{name}'")
+    f = MEMORY_DIR / f"{name}.json"
+    if not f.exists():
+        return {"data": None}
+    try:
+        return {"data": json.loads(f.read_text(encoding="utf-8"))}
+    except Exception:
+        return {"data": None}
 
-@app.get("/projects/{project_id}/index")
-def get_index(project_id: int):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return file_indexer.get_cached_index(project["path"])
-
-
-# ─────────── Memory ───────────
-
-memory_store: List[dict] = []
-_memory_id_counter = 0
-
-@app.get("/memory")
-def get_memory(project_id: Optional[int] = None):
-    if project_id:
-        return [m for m in memory_store if m.get("project_id") == project_id]
-    return memory_store
-
-@app.post("/memory")
-def add_memory(entry: MemoryEntry):
-    global _memory_id_counter
-    _memory_id_counter += 1
-    record = {
-        "id": _memory_id_counter,
-        "type": entry.type,
-        "key": entry.key,
-        "value": entry.value,
-        "project_id": entry.project_id,
-    }
-    memory_store.append(record)
-    return record
-
-@app.delete("/memory/{memory_id}")
-def delete_memory(memory_id: int):
-    global memory_store
-    memory_store = [m for m in memory_store if m["id"] != memory_id]
-    return {"success": True}
+@app.post("/memory/save")
+def memory_save(req: MemoryWrite):
+    if req.file not in ALLOWED_MEMORY:
+        raise HTTPException(400, f"invalid memory file '{req.file}'")
+    f = MEMORY_DIR / f"{req.file}.json"
+    f.write_text(json.dumps(req.data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True}
 
 
-# ─────────── Sessions ───────────
-
-sessions_store: List[dict] = []
-_session_id_counter = 0
+# ── Sessions ───────────────────────────────────────────────────────────────────
 
 @app.get("/sessions")
 def list_sessions():
@@ -261,15 +384,9 @@ def list_sessions():
 
 @app.post("/sessions")
 def create_session(req: CreateSessionRequest):
-    global _session_id_counter
-    _session_id_counter += 1
-    session = {
-        "id": _session_id_counter,
-        "goal": req.goal,
-        "model": req.model,
-        "project_id": req.project_id,
-        "status": "idle",
-    }
+    global _session_counter
+    _session_counter += 1
+    session = {"id": _session_counter, "goal": req.goal, "model": req.model, "project_id": req.project_id, "status": "idle"}
     sessions_store.append(session)
     return session
 
@@ -279,9 +396,30 @@ def update_session(session_id: int, status: str):
         if s["id"] == session_id:
             s["status"] = status
             return s
-    raise HTTPException(status_code=404, detail="Session not found")
+    raise HTTPException(404, "session not found")
+
+
+# ── WebSocket ──────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws_manager.connect(ws)
+    try:
+        await ws_manager.broadcast("status", {"state": STATE["agent_state"]})
+        while True:
+            msg = await ws.receive_text()
+            try:
+                data = json.loads(msg)
+            except Exception:
+                data = {"type": "ping", "raw": msg}
+            await ws_manager.broadcast("log", {"source": "ws_in", "message": str(data)})
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(ws)
+    except Exception as e:
+        log.warning(f"ws error: {e}")
+        await ws_manager.disconnect(ws)
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.server:app", host="127.0.0.1", port=8000, reload=True)

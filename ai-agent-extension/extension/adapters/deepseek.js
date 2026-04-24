@@ -1,40 +1,59 @@
-// DeepSeek adapter - handles DOM interaction for chat.deepseek.com
+import AIAdapter from "./baseAdapter.js";
 
-export const DeepSeekAdapter = {
-  name: "deepseek",
-  url: "https://chat.deepseek.com",
-  
-  selectors: {
-    input: "textarea",
-    sendBtn: '[aria-label="Send"], button[type="submit"]',
-    response: ".ds-markdown, .message-content",
-    loadingIndicator: ".loading-dots, [class*='loading']",
-  },
-
-  inject(prompt) {
-    const input = document.querySelector(this.selectors.input);
-    if (!input) return { error: "DeepSeek input not found" };
-
+const utils = {
+  findFirst: (sels) => sels.map(s => document.querySelector(s)).find(Boolean) || null,
+  setNativeValue: (el, val) => {
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(input, prompt);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    
-    setTimeout(() => {
-      const btn = document.querySelector(this.selectors.sendBtn);
-      if (btn && !btn.disabled) btn.click();
-    }, 500);
-    
-    return { success: true };
+    setter?.call(el, val);
   },
-
-  getResponse() {
-    const responses = document.querySelectorAll(this.selectors.response);
-    if (!responses.length) return { response: null, done: false };
-    
-    const last = responses[responses.length - 1];
-    const text = last?.innerText || "";
-    const isLoading = !!document.querySelector(this.selectors.loadingIndicator);
-    
-    return { response: text, done: !isLoading && text.length > 0 };
+  setContentEditable: (el, val) => { el.textContent = val; },
+  clipboardPaste: async () => false,
+  sleep: (ms) => new Promise(r => setTimeout(r, ms)),
+  waitFor: (fn, { timeout = 30000, interval = 500 } = {}) => {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const check = () => {
+        if (fn()) return resolve(true);
+        if (Date.now() - start > timeout) return reject(new Error("waitFor timeout"));
+        setTimeout(check, interval);
+      };
+      check();
+    });
+  },
+  waitForStable: (fn, { settleMs = 1500, timeout = 60000 } = {}) => {
+    return new Promise((resolve) => {
+      let last = "";
+      let stableAt = null;
+      const start = Date.now();
+      const check = () => {
+        const cur = fn();
+        if (cur !== last) { last = cur; stableAt = Date.now(); }
+        if (stableAt && Date.now() - stableAt >= settleMs && cur) return resolve(cur);
+        if (Date.now() - start > timeout) return resolve(cur);
+        setTimeout(check, 500);
+      };
+      check();
+    });
   },
 };
+
+export class DeepSeekAdapter extends AIAdapter {
+  constructor() {
+    super(utils);
+    this.name = "deepseek";
+    this.selectors = {
+      input: ["textarea#chat-input", "textarea", ".chat-input textarea"],
+      sendButton: ["[aria-label='Send']", "button[type='submit']", ".send-button"],
+      responseContainer: [".ds-markdown", ".message-content"],
+      lastResponse: [".ds-markdown", ".message-content p"],
+      spinner: [".loading-dots", "[class*='loading']", ".typing-indicator"],
+      loginIndicator: [".login-btn", "[href*='login']"],
+      captcha: [".captcha", "#challenge-form"],
+      rateLimit: [".rate-limit-tip"],
+    };
+  }
+}
+
+export const deepseekAdapter = new DeepSeekAdapter();
+window.__adapters = window.__adapters || {};
+window.__adapters.deepseek = deepseekAdapter;
