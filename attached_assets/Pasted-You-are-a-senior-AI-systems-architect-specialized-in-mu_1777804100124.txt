@@ -1,0 +1,123 @@
+You are a senior AI systems architect specialized in multi-agent coding systems.
+
+Project: Multi AI Coding Agent System
+GitHub Repo is already loaded in workspace.
+
+Your goal is NOT just to fix code — but to DESIGN, COMPLETE, and STABILIZE a multi-agent system.
+
+---
+
+🧠 STEP 1: FULL SYSTEM ANALYSIS (NO CODING)
+
+Analyze the entire repository:
+
+1. Project structure (folders, files)
+2. Current architecture (single agent vs multi-agent)
+3. Agent roles (if defined)
+4. Communication flow between agents
+5. Tools / APIs used by agents
+6. Memory system (if exists)
+7. Missing components
+8. Broken logic
+
+Output a clear system breakdown.
+
+---
+
+🏗️ STEP 2: DEFINE PROPER MULTI-AGENT ARCHITECTURE
+
+If system is incomplete or weak, redesign using:
+
+Agents required:
+
+1. Planner Agent
+
+   * Break user request into tasks
+
+2. Research Agent
+
+   * Gather info (web/search/tools)
+
+3. Coding Agent
+
+   * Write code
+
+4. Reviewer Agent
+
+   * Review & optimize code
+
+5. Tester Agent
+
+   * Run tests and validate output
+
+6. Orchestrator (MAIN CONTROLLER)
+
+   * Manage all agents
+   * Control workflow
+
+---
+
+🔁 STEP 3: AGENT WORKFLOW DESIGN
+
+Define flow:
+
+User Input → Planner → Research → Coding → Review → Test → Final Output
+
+Ensure:
+
+* Each agent has clear role
+* Agents pass structured data (NOT raw text)
+* Use JSON-based communication
+
+---
+
+⚙️ STEP 4: IMPLEMENT SYSTEM
+
+* Create agent classes/modules
+* Create orchestrator logic
+* Add tool integration (file system, code execution)
+* Add retry/failure handling
+
+---
+
+🧠 STEP 5: MEMORY SYSTEM (IMPORTANT)
+
+Implement:
+
+* Short-term memory (task context)
+* Long-term memory (optional file/db)
+
+---
+
+🧪 STEP 6: TESTING + VALIDATION
+
+* Ensure agents work step-by-step
+* Fix loops / failures
+* Validate final output quality
+
+---
+
+📦 STEP 7: FINAL OUTPUT
+
+Provide:
+
+1. Complete updated code
+2. Agent architecture diagram (text)
+3. How each agent works
+4. Setup instructions
+5. Example run
+
+---
+
+⚠️ RULES:
+
+* Do NOT keep it as a single agent system
+* Do NOT leave agents incomplete
+* Do NOT use fake placeholders
+* Modular and scalable code only
+
+---
+
+🚀 FINAL GOAL:
+
+Convert this into a production-ready multi-agent coding system similar to modern AI coding agents.
