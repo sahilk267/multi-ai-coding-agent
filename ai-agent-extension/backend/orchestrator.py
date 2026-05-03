@@ -498,6 +498,8 @@ class Orchestrator:
         await self._cb_agent("orchestrator", "completed")
         await self._broadcast_pipeline(run)
 
+        duration_s = round(time.time() - run.started_at, 1)
+
         final = {
             "success": test_result.get("success", False),
             "run_id": run.id,
@@ -509,13 +511,41 @@ class Orchestrator:
             "tests_passed": test_result.get("passed", 0),
             "tests_failed": test_result.get("failed", 0),
             "retry_count": run.retry_count,
-            "duration_s": round(time.time() - run.started_at, 1),
+            "duration_s": duration_s,
             "agents_used": ["planner", "researcher", "coder", "reviewer", "tester"],
             "run": run.to_dict(),
         }
 
+        # ── Record in project journal ──────────────────────────────────────────
+        try:
+            from .ai_providers import get_active_provider
+            provider_used = get_active_provider()
+            all_files: list = []
+            for cr in run.results.get("coder", []):
+                if isinstance(cr, dict):
+                    for f in cr.get("changes", {}).get("files", []):
+                        path = f.get("path", "") if isinstance(f, dict) else str(f)
+                        if path:
+                            all_files.append(path)
+            memory.journal().record(
+                run_id=run.id,
+                goal=run.goal,
+                session_id=run.session_id,
+                provider_used=provider_used,
+                plan_tasks=[t.get("title", t.get("id", "")) for t in tasks[:10]],
+                files_modified=all_files,
+                review_score=float(review_data.get("score", 0)),
+                review_approved=bool(review_data.get("approved", False)),
+                tests_passed=int(test_result.get("passed", 0)),
+                tests_failed=int(test_result.get("failed", 0)),
+                duration_s=duration_s,
+            )
+            await self._log(f"[ORCHESTRATOR] Journal entry saved (provider={provider_used})", run)
+        except Exception as _je:
+            log.warning(f"Journal record failed (non-fatal): {_je}")
+
         await self._log(
-            f"[ORCHESTRATOR] ✅ Pipeline complete in {final['duration_s']}s — "
+            f"[ORCHESTRATOR] ✅ Pipeline complete in {duration_s}s — "
             f"review {review_data.get('score', 0)}/10, {test_summary}",
             run,
         )

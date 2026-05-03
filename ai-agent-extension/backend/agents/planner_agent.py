@@ -1,7 +1,8 @@
 """
 Planner Agent — decomposes a high-level user goal into structured JSON tasks.
-Routed to: ChatGPT (reasoning-heavy model)
+Preferred model: ChatGPT → Ollama → rule-based fallback.
 """
+from __future__ import annotations
 
 import json
 import time
@@ -23,11 +24,14 @@ class PlannerAgent(BaseAgent):
     def system_prompt(self) -> str:
         return (
             "You are an expert software engineering planner. "
-            "Given a user goal, you break it into a precise, ordered list of tasks. "
+            "Given a user goal, break it into a precise, ordered list of tasks. "
             "Each task must be concrete, actionable, and assigned to exactly one specialist: "
             "researcher, coder, reviewer, or tester. "
-            "Output ONLY valid JSON — no prose. "
-            "Schema: { tasks: [ { id, title, description, assignedTo, priority, dependencies } ] }"
+            "Use previous project journal entries to avoid repeating past mistakes. "
+            "Output ONLY valid JSON — no prose, no markdown fences. "
+            'Schema: {"tasks": [{"id": "T1", "title": "...", "description": "...", '
+            '"assignedTo": "researcher|coder|reviewer|tester", "priority": 1, '
+            '"dependencies": [], "status": "pending"}]}'
         )
 
     async def run(self, task: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -37,16 +41,15 @@ class PlannerAgent(BaseAgent):
 
         start = time.time()
         structured_tasks = self._decompose(goal, context)
-        prompt = self._build_prompt(task, context)
-        provider_result = call_model(
-            self.ai_model,
-            self.system_prompt,
-            prompt,
-            {"tasks": structured_tasks},
-        )
 
-        if isinstance(provider_result, dict) and provider_result.get("tasks"):
-            structured_tasks = provider_result["tasks"]
+        prompt = self._build_prompt({"description": goal, "goal": goal}, context)
+        provider_result = call_model(self.ai_model, self.system_prompt, prompt, {"tasks": structured_tasks})
+
+        if isinstance(provider_result, dict) and isinstance(provider_result.get("tasks"), list):
+            llm_tasks = provider_result["tasks"]
+            if llm_tasks:
+                structured_tasks = llm_tasks
+                await self._log(f"[PLANNER] LLM produced {len(llm_tasks)} tasks")
 
         self._mem.set_context("plan", structured_tasks)
         self._ltm.write("shared", "last_plan", {
@@ -60,7 +63,6 @@ class PlannerAgent(BaseAgent):
             "tasks": structured_tasks,
             "goal": goal,
         })
-
         await self._set_status("completed", None)
         await self._log(f"[PLANNER] Produced {len(structured_tasks)} tasks in {time.time()-start:.1f}s")
 
@@ -72,107 +74,56 @@ class PlannerAgent(BaseAgent):
         }
 
     def _decompose(self, goal: str, context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Rule-based planner that produces structured tasks.
-        In production this would call the AI model; here it generates a
-        realistic task graph based on common coding patterns.
-        """
         goal_lower = goal.lower()
-        base_tasks = []
+        base_tasks: List[Dict[str, Any]] = []
+
         base_tasks.append({
-            "id": "T1",
-            "title": "Research codebase structure",
-            "description": f"Index the project, identify relevant files, and gather context needed to accomplish: {goal}",
-            "assignedTo": "researcher",
-            "priority": 1,
-            "dependencies": [],
-            "status": "pending",
+            "id": "T1", "title": "Research codebase structure",
+            "description": f"Index the project, identify relevant files, and gather context for: {goal}",
+            "assignedTo": "researcher", "priority": 1, "dependencies": [], "status": "pending",
         })
+
         if any(kw in goal_lower for kw in ["fix", "bug", "error", "crash", "fail"]):
-            base_tasks.append({
-                "id": "T2",
-                "title": "Diagnose root cause",
-                "description": f"Analyze error patterns and identify the root cause of: {goal}",
-                "assignedTo": "researcher",
-                "priority": 2,
-                "dependencies": ["T1"],
-                "status": "pending",
-            })
-            base_tasks.append({
-                "id": "T3",
-                "title": "Implement fix",
-                "description": f"Write the code changes needed to fix: {goal}",
-                "assignedTo": "coder",
-                "priority": 3,
-                "dependencies": ["T2"],
-                "status": "pending",
-            })
+            base_tasks += [
+                {"id": "T2", "title": "Diagnose root cause",
+                 "description": f"Analyze error patterns and identify the root cause of: {goal}",
+                 "assignedTo": "researcher", "priority": 2, "dependencies": ["T1"], "status": "pending"},
+                {"id": "T3", "title": "Implement fix",
+                 "description": f"Write the code changes needed to fix: {goal}",
+                 "assignedTo": "coder", "priority": 3, "dependencies": ["T2"], "status": "pending"},
+            ]
         elif any(kw in goal_lower for kw in ["add", "implement", "create", "build", "feature"]):
-            base_tasks.append({
-                "id": "T2",
-                "title": "Design implementation approach",
-                "description": f"Design the technical approach and data flow for: {goal}",
-                "assignedTo": "researcher",
-                "priority": 2,
-                "dependencies": ["T1"],
-                "status": "pending",
-            })
-            base_tasks.append({
-                "id": "T3",
-                "title": "Implement feature",
-                "description": f"Write all required code to implement: {goal}",
-                "assignedTo": "coder",
-                "priority": 3,
-                "dependencies": ["T2"],
-                "status": "pending",
-            })
+            base_tasks += [
+                {"id": "T2", "title": "Design implementation approach",
+                 "description": f"Design the technical approach and data flow for: {goal}",
+                 "assignedTo": "researcher", "priority": 2, "dependencies": ["T1"], "status": "pending"},
+                {"id": "T3", "title": "Implement feature",
+                 "description": f"Write all required code to implement: {goal}",
+                 "assignedTo": "coder", "priority": 3, "dependencies": ["T2"], "status": "pending"},
+            ]
         elif any(kw in goal_lower for kw in ["refactor", "optimize", "improve", "clean"]):
-            base_tasks.append({
-                "id": "T2",
-                "title": "Analyze current implementation",
-                "description": f"Identify improvement opportunities and anti-patterns for: {goal}",
-                "assignedTo": "researcher",
-                "priority": 2,
-                "dependencies": ["T1"],
-                "status": "pending",
-            })
-            base_tasks.append({
-                "id": "T3",
-                "title": "Apply refactoring",
-                "description": f"Refactor code according to best practices for: {goal}",
-                "assignedTo": "coder",
-                "priority": 3,
-                "dependencies": ["T2"],
-                "status": "pending",
-            })
+            base_tasks += [
+                {"id": "T2", "title": "Analyze current implementation",
+                 "description": f"Identify improvement opportunities and anti-patterns for: {goal}",
+                 "assignedTo": "researcher", "priority": 2, "dependencies": ["T1"], "status": "pending"},
+                {"id": "T3", "title": "Apply refactoring",
+                 "description": f"Refactor code according to best practices for: {goal}",
+                 "assignedTo": "coder", "priority": 3, "dependencies": ["T2"], "status": "pending"},
+            ]
         else:
             base_tasks.append({
-                "id": "T2",
-                "title": "Implement solution",
+                "id": "T2", "title": "Implement solution",
                 "description": f"Write the code to accomplish: {goal}",
-                "assignedTo": "coder",
-                "priority": 2,
-                "dependencies": ["T1"],
-                "status": "pending",
+                "assignedTo": "coder", "priority": 2, "dependencies": ["T1"], "status": "pending",
             })
 
-        last_coding_id = base_tasks[-1]["id"]
-        base_tasks.append({
-            "id": "T4",
-            "title": "Code review",
-            "description": "Review code quality, edge cases, security, and correctness of all changes",
-            "assignedTo": "reviewer",
-            "priority": 4,
-            "dependencies": [last_coding_id],
-            "status": "pending",
-        })
-        base_tasks.append({
-            "id": "T5",
-            "title": "Run tests and validate",
-            "description": "Execute existing tests, write new tests for the changes, and validate final output",
-            "assignedTo": "tester",
-            "priority": 5,
-            "dependencies": ["T4"],
-            "status": "pending",
-        })
+        last_id = base_tasks[-1]["id"]
+        base_tasks += [
+            {"id": "T4", "title": "Code review",
+             "description": "Review code quality, edge cases, security, and correctness of all changes",
+             "assignedTo": "reviewer", "priority": 4, "dependencies": [last_id], "status": "pending"},
+            {"id": "T5", "title": "Run tests and validate",
+             "description": "Execute existing tests, write new tests for the changes, and validate final output",
+             "assignedTo": "tester", "priority": 5, "dependencies": ["T4"], "status": "pending"},
+        ]
         return base_tasks

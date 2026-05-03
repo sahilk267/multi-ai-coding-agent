@@ -1,5 +1,8 @@
 {
-  "current_goal": "",
-  "completed_steps": [],
+  "current_goal": "smoke_test",
+  "completed_steps": [
+    "provider_check",
+    "pipeline"
+  ],
   "modified_files": []
 }

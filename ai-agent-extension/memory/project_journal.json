@@ -1,0 +1,99 @@
+{
+  "runs": {
+    "value": [
+      {
+        "data": {
+          "run_id": "b4e816e7",
+          "goal": "Add a hello_world function to utils.py that returns 'Hello, World!'",
+          "session_id": "99901",
+          "provider_used": "rule-based fallback",
+          "plan_tasks": [
+            "Research codebase structure",
+            "Design implementation approach",
+            "Implement feature",
+            "Code review",
+            "Run tests and validate"
+          ],
+          "files_modified": [],
+          "review_score": 8.0,
+          "review_approved": true,
+          "tests_passed": 1,
+          "tests_failed": 0,
+          "duration_s": 0.1,
+          "ts": "2026-05-03T11:35:52Z"
+        },
+        "timestamp": 1777808152.3698816
+      },
+      {
+        "data": {
+          "run_id": "00399a4b",
+          "goal": "Implement a complex distributed caching layer with Redis",
+          "session_id": "99902",
+          "provider_used": "rule-based fallback",
+          "plan_tasks": [
+            "Research codebase structure",
+            "Design implementation approach",
+            "Implement feature",
+            "Code review",
+            "Run tests and validate"
+          ],
+          "files_modified": [],
+          "review_score": 8.0,
+          "review_approved": true,
+          "tests_passed": 1,
+          "tests_failed": 0,
+          "duration_s": 0.0,
+          "ts": "2026-05-03T11:35:55Z"
+        },
+        "timestamp": 1777808155.2835827
+      },
+      {
+        "data": {
+          "run_id": "800d9ef9",
+          "goal": "Add a hello_world function to utils.py that returns 'Hello, World!'",
+          "session_id": "99901",
+          "provider_used": "rule-based fallback",
+          "plan_tasks": [
+            "Research codebase structure",
+            "Design implementation approach",
+            "Implement feature",
+            "Code review",
+            "Run tests and validate"
+          ],
+          "files_modified": [],
+          "review_score": 8.0,
+          "review_approved": true,
+          "tests_passed": 1,
+          "tests_failed": 0,
+          "duration_s": 0.0,
+          "ts": "2026-05-03T11:36:25Z"
+        },
+        "timestamp": 1777808185.018714
+      },
+      {
+        "data": {
+          "run_id": "7fd33bdd",
+          "goal": "Implement a complex distributed caching layer with Redis",
+          "session_id": "99902",
+          "provider_used": "rule-based fallback",
+          "plan_tasks": [
+            "Research codebase structure",
+            "Design implementation approach",
+            "Implement feature",
+            "Code review",
+            "Run tests and validate"
+          ],
+          "files_modified": [],
+          "review_score": 8.0,
+          "review_approved": true,
+          "tests_passed": 1,
+          "tests_failed": 0,
+          "duration_s": 0.0,
+          "ts": "2026-05-03T11:36:28Z"
+        },
+        "timestamp": 1777808188.0176694
+      }
+    ],
+    "updated_at": 1777808188.0176702
+  }
+}

@@ -1,8 +1,15 @@
 """
 Dual-layer agent memory system:
 - Short-term: per-agent in-memory context (task window, recent outputs)
-- Long-term: shared JSON files persisted across runs
+- Long-term:  shared JSON files persisted across runs (analysis, code changes, journal)
+
+New in this version:
+- ProjectJournal: appends a structured record for every pipeline run (goal, plan,
+  code changes, review score, test result, duration). Agents load recent journal
+  entries into their prompts so every run benefits from past context.
+- LongTermMemory.invalidate(): clears cache for a namespace so changes are re-read.
 """
+from __future__ import annotations
 
 import json
 import time
@@ -13,7 +20,7 @@ from typing import Any, Dict, List, Optional
 class ShortTermMemory:
     """
     Sliding-window in-memory context per agent.
-    Holds recent inputs, outputs, and intermediate results.
+    Holds recent inputs, outputs, and intermediate results within one pipeline run.
     """
 
     def __init__(self, agent_id: str, max_entries: int = 50):
@@ -89,6 +96,10 @@ class LongTermMemory:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in namespace)
         return self._dir / f"{safe}.json"
 
+    def invalidate(self, namespace: str) -> None:
+        """Force a re-read on next access (use after external writes)."""
+        self._cache.pop(namespace, None)
+
     def read(self, namespace: str) -> Dict[str, Any]:
         if namespace in self._cache:
             return self._cache[namespace]
@@ -136,14 +147,107 @@ class LongTermMemory:
         self._path(namespace).write_text(json.dumps(data, indent=2, default=str))
 
 
+class ProjectJournal:
+    """
+    Append-only persistent log of every pipeline run.
+
+    Each entry records:
+      - goal, run_id, session_id, provider_used
+      - plan tasks (titles only)
+      - code files modified
+      - review score + approval
+      - test pass/fail counts
+      - total duration (seconds)
+      - timestamp
+
+    Agents call journal.recent_summary(n) to get a compact text block that is
+    injected into their system prompts, so they can learn from past runs.
+    """
+
+    NAMESPACE = "project_journal"
+    KEY = "runs"
+
+    def __init__(self, ltm: LongTermMemory):
+        self._ltm = ltm
+
+    def record(
+        self,
+        *,
+        run_id: str,
+        goal: str,
+        session_id: Optional[str],
+        provider_used: str,
+        plan_tasks: List[str],
+        files_modified: List[str],
+        review_score: float,
+        review_approved: bool,
+        tests_passed: int,
+        tests_failed: int,
+        duration_s: float,
+    ) -> None:
+        entry = {
+            "run_id": run_id,
+            "goal": goal,
+            "session_id": session_id,
+            "provider_used": provider_used,
+            "plan_tasks": plan_tasks[:10],
+            "files_modified": files_modified[:20],
+            "review_score": review_score,
+            "review_approved": review_approved,
+            "tests_passed": tests_passed,
+            "tests_failed": tests_failed,
+            "duration_s": duration_s,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        self._ltm.append(self.NAMESPACE, self.KEY, entry, max_items=50)
+
+    def recent_runs(self, n: int = 5) -> List[Dict[str, Any]]:
+        items = self._ltm.get(self.NAMESPACE, self.KEY, [])
+        entries = [i["data"] for i in items if isinstance(i, dict) and "data" in i]
+        return entries[-n:]
+
+    def recent_summary(self, n: int = 3) -> str:
+        runs = self.recent_runs(n)
+        if not runs:
+            return "No previous runs in project journal."
+        lines = ["=== RECENT PIPELINE RUNS (from project journal) ==="]
+        for r in runs:
+            status = "✅ PASSED" if r.get("review_approved") else "⚠️ NEEDS WORK"
+            lines.append(
+                f"[{r.get('ts', '?')}] {status} | Goal: {r.get('goal', '')[:80]}"
+                f" | Provider: {r.get('provider_used', 'fallback')}"
+                f" | Review: {r.get('review_score', 0)}/10"
+                f" | Tests: {r.get('tests_passed', 0)} passed / {r.get('tests_failed', 0)} failed"
+                f" | Files changed: {len(r.get('files_modified', []))}"
+                f" | Duration: {r.get('duration_s', 0):.1f}s"
+            )
+            if r.get("files_modified"):
+                lines.append(f"  Changed files: {', '.join(r['files_modified'][:5])}")
+        return "\n".join(lines)
+
+    def all_changed_files(self) -> List[str]:
+        """Return deduplicated list of all files ever modified across runs."""
+        runs = self.recent_runs(50)
+        seen = set()
+        result = []
+        for r in runs:
+            for f in r.get("files_modified", []):
+                if f not in seen:
+                    seen.add(f)
+                    result.append(f)
+        return result
+
+
 class AgentMemorySystem:
     """
-    Factory that provides per-agent short-term memory + shared long-term memory.
+    Factory that provides per-agent short-term memory + shared long-term memory
+    + a project journal.
     """
 
     def __init__(self, memory_dir: str):
         self._long_term = LongTermMemory(memory_dir)
         self._short_term: Dict[str, ShortTermMemory] = {}
+        self._journal = ProjectJournal(self._long_term)
 
     def short_term(self, agent_id: str) -> ShortTermMemory:
         if agent_id not in self._short_term:
@@ -152,6 +256,9 @@ class AgentMemorySystem:
 
     def long_term(self) -> LongTermMemory:
         return self._long_term
+
+    def journal(self) -> ProjectJournal:
+        return self._journal
 
     def snapshot(self) -> Dict[str, Any]:
         return {

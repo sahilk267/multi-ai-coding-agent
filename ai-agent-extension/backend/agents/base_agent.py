@@ -2,14 +2,23 @@
 Base agent class — every specialized agent inherits from this.
 Provides lifecycle management, memory access, message bus publishing,
 and a standard run() interface.
+
+Prompt building now automatically injects:
+  - Agent system prompt
+  - Project journal summary (recent pipeline runs)
+  - Long-term project context
+  - Short-term memory summary
+  - Current task description + context
 """
+from __future__ import annotations
 
 import asyncio
+import json
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
-from ..agent_memory import AgentMemorySystem, ShortTermMemory, LongTermMemory
+from ..agent_memory import AgentMemorySystem, ShortTermMemory, LongTermMemory, ProjectJournal
 from ..message_bus import AgentMessage, MessageBus
 from ..websocket_manager import ws_manager
 
@@ -45,13 +54,10 @@ class BaseAgent(ABC):
 
         self._mem: ShortTermMemory = memory_system.short_term(role)
         self._ltm: LongTermMemory = memory_system.long_term()
+        self._journal: ProjectJournal = memory_system.journal()
 
-        asyncio.create_task(
-            self._bus.subscribe(self.role, self._on_message)
-        )
-        asyncio.create_task(
-            self._bus.subscribe("*", self._on_broadcast)
-        )
+        asyncio.create_task(self._bus.subscribe(self.role, self._on_message))
+        asyncio.create_task(self._bus.subscribe("*", self._on_broadcast))
 
     @property
     @abstractmethod
@@ -66,11 +72,9 @@ class BaseAgent(ABC):
         """
 
     async def _on_message(self, msg: AgentMessage) -> None:
-        """Handle messages addressed directly to this agent."""
         pass
 
     async def _on_broadcast(self, msg: AgentMessage) -> None:
-        """Handle broadcast messages (to_agent == '*')."""
         pass
 
     async def _set_status(self, status: str, task: Optional[str] = None) -> None:
@@ -80,7 +84,6 @@ class BaseAgent(ABC):
             self.started_at = time.time()
         elif status in ("completed", "failed"):
             self.completed_at = time.time()
-
         await self._broadcast_status(status)
 
     async def _broadcast_status(self, status: str) -> None:
@@ -102,12 +105,7 @@ class BaseAgent(ABC):
         })
         self._mem.add("log", message, category="log")
 
-    async def _send(
-        self,
-        to_agent: str,
-        message_type: str,
-        payload: Dict[str, Any],
-    ) -> None:
+    async def _send(self, to_agent: str, message_type: str, payload: Dict[str, Any]) -> None:
         msg = AgentMessage(
             from_agent=self.role,
             to_agent=to_agent,
@@ -127,26 +125,28 @@ class BaseAgent(ABC):
 
     def _build_prompt(self, task: Dict[str, Any], context: Dict[str, Any]) -> str:
         """
-        Combines system prompt + long-term memory + short-term summary + task.
+        Combines: journal summary + LTM project context + short-term memory + task + context.
+        This is the full prompt sent to the LLM.
         """
+        journal_summary = self._journal.recent_summary(n=3)
         ltm_data = self._ltm.get("shared", "project_context", "")
         recent = self._mem.summarize()
 
         parts = [
             f"=== SYSTEM ===\n{self.system_prompt}",
+            f"\n=== PROJECT JOURNAL ===\n{journal_summary}",
             f"\n=== PROJECT CONTEXT ===\n{ltm_data}" if ltm_data else "",
-            f"\n=== RECENT MEMORY ===\n{recent}" if recent else "",
-            f"\n=== TASK ===\n{task.get('description', '')}",
+            f"\n=== RECENT MEMORY ===\n{recent}" if recent and recent != "No memory entries." else "",
+            f"\n=== TASK ===\n{task.get('description', task.get('goal', ''))}",
         ]
         if context:
-            import json
-            ctx_str = json.dumps(context, indent=2, default=str)
+            ctx_str = json.dumps(
+                {k: v for k, v in context.items() if k not in ("research",)},
+                indent=2, default=str
+            )
             parts.append(f"\n=== CONTEXT ===\n{ctx_str[:3000]}")
 
         return "\n".join(p for p in parts if p)
-
-    def _provider_name(self) -> str:
-        return self.ai_model
 
     def to_dict(self) -> Dict[str, Any]:
         return {

@@ -219,11 +219,40 @@ _session_counter = 0
 
 @app.get("/")
 def root():
-    return {"ok": True, "service": "ai-agent-backend", "version": "1.0.0"}
+    from .ai_providers import get_active_provider
+    return {
+        "ok": True,
+        "service": "ai-agent-backend",
+        "version": "2.0.0",
+        "active_provider": get_active_provider(),
+    }
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    from .ai_providers import get_provider_status
+    return {"status": "ok", "version": "2.0.0", "provider": get_provider_status()}
+
+@app.get("/provider/status")
+def provider_status():
+    """Return full LLM provider health: Ollama availability, cloud key presence, active provider."""
+    from .ai_providers import get_provider_status
+    return get_provider_status()
+
+@app.get("/journal")
+def journal_entries(n: int = 10):
+    """Return the last n project journal entries (pipeline run history)."""
+    from .agent_memory import AgentMemorySystem
+    mem = AgentMemorySystem(str(MEMORY_DIR))
+    runs = mem.journal().recent_runs(n)
+    return {"entries": runs, "count": len(runs)}
+
+@app.get("/journal/summary")
+def journal_summary(n: int = 3):
+    """Return a human-readable summary of the last n pipeline runs."""
+    from .agent_memory import AgentMemorySystem
+    mem = AgentMemorySystem(str(MEMORY_DIR))
+    summary = mem.journal().recent_summary(n)
+    return {"summary": summary}
 
 @app.get("/status")
 def status():

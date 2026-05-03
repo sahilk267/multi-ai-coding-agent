@@ -1,7 +1,8 @@
 """
 Coder Agent — generates, modifies, and writes code files.
-Routed to: DeepSeek (coding specialist model)
+Preferred model: DeepSeek → Ollama → rule-based fallback.
 """
+from __future__ import annotations
 
 import json
 import time
@@ -24,11 +25,12 @@ class CoderAgent(BaseAgent):
     @property
     def system_prompt(self) -> str:
         return (
-            "You are an elite software engineer. You write clean, efficient, well-commented code. "
-            "Given a task and context from the researcher, you produce exact file changes. "
-            "Your output is always structured JSON: { files: [ { path, content, action } ], commands: [] }. "
-            "action is one of: create, modify, delete. "
-            "Follow existing code style. Write production-quality code only. No placeholders."
+            "You are an elite software engineer. Write clean, efficient, well-commented code. "
+            "Given a task and research context, produce exact file changes. "
+            "Use the project journal to learn from past code changes and review feedback. "
+            "Output ONLY valid JSON — no prose, no markdown fences. "
+            'Schema: {"files": [{"path": "...", "content": "...", "action": "create|modify|delete"}], '
+            '"commands": ["..."], "implementation_notes": "..."}'
         )
 
     def set_project_root(self, root: str) -> None:
@@ -40,7 +42,6 @@ class CoderAgent(BaseAgent):
         await self._log(f"[CODER] Starting implementation: {description}")
 
         start = time.time()
-
         research = context.get("research", {})
         review_feedback = context.get("review_feedback", [])
 
@@ -52,8 +53,15 @@ class CoderAgent(BaseAgent):
         changes = self._plan_changes(description, research, review_feedback)
         prompt = self._build_prompt(task, context)
         provider_result = call_model(self.ai_model, self.system_prompt, prompt, {"changes": changes})
-        if isinstance(provider_result, dict) and provider_result.get("changes"):
-            changes = provider_result["changes"]
+
+        if isinstance(provider_result, dict):
+            if isinstance(provider_result.get("files"), list):
+                changes["files"] = provider_result["files"]
+                await self._log(f"[CODER] LLM produced {len(changes['files'])} file(s)")
+            if isinstance(provider_result.get("commands"), list):
+                changes["commands"] = provider_result["commands"]
+            if provider_result.get("implementation_notes"):
+                changes["implementation_notes"] = provider_result["implementation_notes"]
 
         written_files = []
         if self._project_root:
@@ -62,7 +70,7 @@ class CoderAgent(BaseAgent):
         self._mem.set_context("last_changes", changes)
         self._ltm.append("shared", "code_changes", {
             "task": description,
-            "changes": len(changes.get("files", [])),
+            "files_modified": [f.get("path", "") for f in changes.get("files", [])],
             "timestamp": time.time(),
         })
 
@@ -72,10 +80,12 @@ class CoderAgent(BaseAgent):
             "written_files": written_files,
             "task_id": task.get("id"),
         })
-
         await self._set_status("completed", None)
         elapsed = time.time() - start
-        await self._log(f"[CODER] Done in {elapsed:.1f}s — {len(changes.get('files', []))} files planned, {len(written_files)} written")
+        await self._log(
+            f"[CODER] Done in {elapsed:.1f}s — "
+            f"{len(changes.get('files', []))} files planned, {len(written_files)} written"
+        )
 
         return {
             "success": True,
@@ -102,7 +112,7 @@ class CoderAgent(BaseAgent):
         if "Python" in tech:
             commands.append("pip install -r requirements.txt 2>/dev/null || true")
         if "Node.js" in tech or "TypeScript" in tech:
-            commands.append("npm install 2>/dev/null || pnpm install 2>/dev/null || true")
+            commands.append("pnpm install 2>/dev/null || npm install 2>/dev/null || true")
 
         return {
             "task": description,
@@ -114,23 +124,19 @@ class CoderAgent(BaseAgent):
             "implementation_notes": (
                 f"Implementation plan for: {description}\n"
                 f"Target files: {', '.join(relevant[:3]) if relevant else 'To be determined'}\n"
-                f"Stack: {', '.join(tech) if tech else 'Unknown'}\n"
-                "Note: In production, the AI model would generate exact file content here."
+                f"Stack: {', '.join(tech) if tech else 'Unknown'}"
             ),
         }
 
     async def _apply_changes(self, changes: Dict[str, Any]) -> List[str]:
         written = []
         root = Path(self._project_root)
-
         for file_change in changes.get("files", []):
             path = file_change.get("path", "")
             content = file_change.get("content", "")
             action = file_change.get("action", "modify")
-
             if not path or not content:
                 continue
-
             try:
                 full_path = root / path
                 if action == "delete":
@@ -145,5 +151,4 @@ class CoderAgent(BaseAgent):
             except Exception as e:
                 await self._log(f"[CODER] Failed to write {path}: {e}", "error")
                 self.error_count += 1
-
         return written
