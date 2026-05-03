@@ -6,6 +6,7 @@ import sessionsRouter from "./sessions";
 import memoryRouter from "./memory";
 import executeRouter from "./execute";
 import statsRouter from "./stats";
+import agentsRouter from "./agents";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(sessionsRouter);
 router.use(memoryRouter);
 router.use(executeRouter);
 router.use(statsRouter);
+router.use(agentsRouter);
 
 export default router;

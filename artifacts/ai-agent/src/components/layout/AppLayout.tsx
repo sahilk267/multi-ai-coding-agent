@@ -5,6 +5,7 @@ import {
   Activity, 
   BrainCircuit,
   Radio,
+  GitFork,
   ChevronRight
 } from "lucide-react";
 import { useHealthCheck } from "@workspace/api-client-react";
@@ -17,6 +18,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { href: "/", label: "Overview", icon: TerminalSquare },
+    { href: "/pipeline", label: "Pipeline", icon: GitFork },
     { href: "/projects", label: "Projects", icon: FolderGit2 },
     { href: "/sessions", label: "Sessions", icon: Activity },
     { href: "/memory", label: "Memory", icon: BrainCircuit },

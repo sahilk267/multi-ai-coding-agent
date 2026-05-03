@@ -445,6 +445,195 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentStats"
 
+  /pipeline/start:
+    post:
+      operationId: startPipeline
+      tags: [pipeline]
+      summary: Start a multi-agent pipeline run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartPipelineBody"
+      responses:
+        "201":
+          description: Pipeline started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineStartResult"
+
+  /pipeline/{sessionId}/status:
+    get:
+      operationId: getPipelineStatus
+      tags: [pipeline]
+      summary: Get full pipeline status for a session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pipeline status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineStatus"
+        "404":
+          description: Session not found
+
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [pipeline]
+      summary: List agents (optionally filter by session)
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+
+  /agents/{id}:
+    get:
+      operationId: getAgent
+      tags: [pipeline]
+      summary: Get a specific agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateAgent
+      tags: [pipeline]
+      summary: Update agent status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentBody"
+      responses:
+        "200":
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  /agent-tasks:
+    get:
+      operationId: listAgentTasks
+      tags: [pipeline]
+      summary: List agent tasks (optionally filter by session)
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentTask"
+
+  /agent-tasks/{id}:
+    patch:
+      operationId: updateAgentTask
+      tags: [pipeline]
+      summary: Update an agent task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentTaskBody"
+      responses:
+        "200":
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTask"
+
+  /agent-messages:
+    get:
+      operationId: listAgentMessages
+      tags: [pipeline]
+      summary: List inter-agent messages (optionally filter by session)
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentMessage"
+    post:
+      operationId: createAgentMessage
+      tags: [pipeline]
+      summary: Post an inter-agent message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentMessageBody"
+      responses:
+        "201":
+          description: Message created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentMessage"
+
 components:
   schemas:
     HealthStatus:
@@ -824,3 +1013,211 @@ components:
         - totalFilesModified
         - totalCommandsRun
         - activeModel
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: integer
+        role:
+          type: string
+          enum: [orchestrator, planner, researcher, coder, reviewer, tester]
+        status:
+          type: string
+          enum: [idle, running, waiting, completed, failed]
+        aiModel:
+          type: string
+        currentTask:
+          type: ["string", "null"]
+        shortTermMemory:
+          type: object
+        startedAt:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - sessionId
+        - role
+        - status
+        - aiModel
+        - createdAt
+        - updatedAt
+
+    UpdateAgentBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [idle, running, waiting, completed, failed]
+        currentTask:
+          type: ["string", "null"]
+
+    AgentTask:
+      type: object
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: integer
+        agentId:
+          type: ["integer", "null"]
+        taskIndex:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        assignedTo:
+          type: string
+          enum: [orchestrator, planner, researcher, coder, reviewer, tester]
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        priority:
+          type: integer
+        result:
+          type: ["string", "null"]
+        errorMessage:
+          type: ["string", "null"]
+        retryCount:
+          type: integer
+        startedAt:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - sessionId
+        - taskIndex
+        - title
+        - description
+        - assignedTo
+        - status
+        - priority
+        - retryCount
+        - createdAt
+        - updatedAt
+
+    UpdateAgentTaskBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        result:
+          type: string
+        errorMessage:
+          type: string
+
+    AgentMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: integer
+        fromAgent:
+          type: string
+        toAgent:
+          type: string
+        messageType:
+          type: string
+        payload:
+          type: object
+        processed:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - sessionId
+        - fromAgent
+        - toAgent
+        - messageType
+        - payload
+        - processed
+        - createdAt
+
+    CreateAgentMessageBody:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+        fromAgent:
+          type: string
+        toAgent:
+          type: string
+        messageType:
+          type: string
+        payload:
+          type: object
+      required:
+        - sessionId
+        - fromAgent
+        - toAgent
+        - messageType
+
+    StartPipelineBody:
+      type: object
+      properties:
+        goal:
+          type: string
+        projectId:
+          type: ["integer", "null"]
+      required:
+        - goal
+
+    PipelineStartResult:
+      type: object
+      properties:
+        session:
+          $ref: "#/components/schemas/AgentSession"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTask"
+        message:
+          type: string
+      required:
+        - session
+        - agents
+        - tasks
+        - message
+
+    PipelineStatus:
+      type: object
+      properties:
+        session:
+          $ref: "#/components/schemas/AgentSession"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTask"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentMessage"
+      required:
+        - session
+        - agents
+        - tasks
+        - messages

@@ -1,9 +1,32 @@
-# Workspace — Multi-AI Autonomous Coding Agent
+# Workspace — Multi-AI Autonomous Coding Agent (Multi-Agent System)
 
 ## Overview
 
-Browser-based autonomous coding agent that drives ChatGPT, DeepSeek, Qwen, and Gemini
-through Chrome automation APIs. No API keys required. A pnpm monorepo.
+Production-ready multi-agent coding system built on a pnpm monorepo.
+6 specialized AI agents collaborate through a JSON message bus to plan, research,
+code, review, and test software changes end-to-end.
+
+## Architecture
+
+### Multi-Agent Pipeline (6 agents)
+1. **OrchestratorAgent** — controls the full pipeline, handles retries, broadcasts state
+2. **PlannerAgent** — decomposes user goals into structured JSON task graphs (ChatGPT)
+3. **ResearcherAgent** — indexes codebase, identifies relevant files, gathers context (Gemini)
+4. **CoderAgent** — writes/modifies code based on research context (DeepSeek)
+5. **ReviewerAgent** — audits code for security, correctness, style (ChatGPT)
+6. **TesterAgent** — runs test suites, parses results, validates output (Qwen)
+
+Pipeline flow: `User Goal → Planner → Researcher → Coder → Reviewer → [retry if rejected] → Tester → Done`
+
+### Inter-Agent Communication
+- **JSON message bus** (`ai-agent-extension/backend/message_bus.py`) — async pub/sub
+- **AgentMessage** schema: `{from_agent, to_agent, message_type, payload, session_id}`
+- Real-time WebSocket broadcast to the React dashboard on every agent state change
+
+### Per-Agent Memory
+- **Short-term** — sliding-window in-memory context per agent (recent outputs, feedback)
+- **Long-term** — shared JSON files persisted to `memory/` across runs
+- **PostgreSQL** — `agents`, `agent_tasks`, `agent_messages` tables for tracking
 
 ## Stack
 
@@ -14,59 +37,80 @@ through Chrome automation APIs. No API keys required. A pnpm monorepo.
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
 - **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Validation**: Zod (v3.25+), `drizzle-zod`
+- **API codegen**: Orval (from OpenAPI spec at `lib/api-spec/openapi.yaml`)
+- **Build**: esbuild (ESM bundle)
 
-### Chrome Extension (ai-agent-extension/extension/)
-- MV3 service worker (background.js) — checkpoint loop, approval queue, crash recovery
-- Content script (content.js) — DOM bridge
-- 4 provider adapters — chatgpt / deepseek / qwen / gemini (default exports)
+### React Dashboard (`artifacts/ai-agent/`, port 5000)
+- 6 pages: Overview, **Pipeline** (new), Projects, Sessions, Memory, Agent Live
+- Pipeline page: live 6-agent flow diagram, task board, inter-agent message feed, live log
+- Vite proxies `/api/*` → `localhost:8080`
+
+### API Server (`artifacts/api-server/`, port 8080)
+New multi-agent routes:
+- `POST /api/pipeline/start` — start a pipeline run (creates session + 6 agents + tasks)
+- `GET  /api/pipeline/:sessionId/status` — full status (session + agents + tasks + messages)
+- `GET  /api/agents` — list agents (filter by `?sessionId=`)
+- `PATCH /api/agents/:id` — update agent status/currentTask
+- `GET  /api/agent-tasks` — list tasks (filter by `?sessionId=`)
+- `PATCH /api/agent-tasks/:id` — update task status/result
+- `GET  /api/agent-messages` — list inter-agent messages
+- `POST /api/agent-messages` — record a new message
+
+### Python Backend (`ai-agent-extension/backend/`, port 8765)
+- **orchestrator.py** — main pipeline controller with 5-stage execution + retry logic
+- **agents/** — 5 specialized agent classes (planner, researcher, coder, reviewer, tester)
+- **base_agent.py** — abstract base with lifecycle, memory, bus publish, WebSocket broadcast
+- **message_bus.py** — async JSON pub/sub with subscriber callbacks and history
+- **agent_memory.py** — ShortTermMemory (sliding window) + LongTermMemory (JSON files)
+- **server.py** — FastAPI with 22+ REST endpoints + WebSocket `/ws`
+
+### DB Schema (`lib/db/src/schema/`)
+- `projects`, `sessions`, `logs`, `plans`, `memory` — original tables
+- `agents` — per-agent state tracking (role, status, aiModel, shortTermMemory, startedAt)
+- `agent_tasks` — task assignments with priority, retry count, result, error
+- `agent_messages` — inter-agent communication log with typed payloads (JSONB)
+
+### Chrome Extension (`ai-agent-extension/extension/`)
+- MV3 service worker (`background.js`) — drives AI model UIs via DOM automation
+- 4 provider adapters — chatgpt / deepseek / qwen / gemini
 - Core modules — stateMachine, router, tokenManager, contextEngine, diffViewer, toolRegistry
-- Config: config.json — backendUrl port 8765, all 4 providers, routing matrix, token limits (8k/32k)
-
-### Python Backend (ai-agent-extension/backend/, port 8765)
-- FastAPI server (server.py) — 22+ REST endpoints + WebSocket /ws
-- SecurityManager (security.py) — binary allowlist + blocked tokens + path traversal guard
-- ProjectManager (project_manager.py) — file ops + optional watchdog file watcher
-- Memory persistence — JSON files in memory/
-
-### React Dashboard (artifacts/ai-agent/, port 5174)
-- AGENT_OS dashboard — 5 pages including AgentLive (live WS monitoring + approval queue)
 
 ## Key Commands
 
-### pnpm monorepo
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks
-- `pnpm --filter @workspace/db run push` — push DB schema changes
-- `pnpm --filter @workspace/api-server run dev` — run Express API server
+```bash
+# Start both services
+PORT=8080 pnpm --filter @workspace/api-server run start    # API server
+PORT=5000 BASE_PATH=/ pnpm --filter @workspace/ai-agent run dev  # React dashboard
 
-### Extension CLI tools (run from ai-agent-extension/extension/)
-- `node scripts/load-check.mjs` — manifest + config static validation
-- `node scripts/check-selectors.mjs` — audit all 4 provider adapters
-- `node scripts/snapshot-config.mjs` — print routing matrix + check port coverage
-- `node --test core/tokenManager.test.mjs` — 10 unit tests (all pass)
-- `node scripts/budget.mjs <provider> <file>` — token budget CLI
+# Build
+pnpm --filter @workspace/api-server run build   # compile TypeScript → dist/index.mjs
+pnpm --filter @workspace/db run push            # push schema changes to PostgreSQL
 
-### Python backend
-- `cd ai-agent-extension/backend && python server.py` — start on port 8765
+# Codegen
+pnpm --filter @workspace/api-spec run codegen   # regenerate API client hooks from OpenAPI
+
+# Python backend
+cd ai-agent-extension/backend && uvicorn server:app --reload --host 127.0.0.1 --port 8765
+```
+
+## Agent Model Routing
+
+| Agent       | Model    | Rationale                                     |
+|-------------|----------|-----------------------------------------------|
+| Orchestrator| auto     | Control logic only, no LLM calls              |
+| Planner     | ChatGPT  | Strong reasoning for goal decomposition       |
+| Researcher  | Gemini   | Long context for large codebase understanding |
+| Coder       | DeepSeek | Code generation specialist                    |
+| Reviewer    | ChatGPT  | Nuanced reasoning for code quality analysis   |
+| Tester      | Qwen     | Debugging/analysis specialist                 |
 
 ## Architecture Notes
 
-- State machine states: IDLE → PLANNING → CODING → TESTING → DEBUGGING → COMMITTING → DONE
-  with WAITING_APPROVAL interrupts. Aliases: EXECUTING=CODING, FIXING=DEBUGGING
-- Checkpoint: background.js saves state every 5s to chrome.storage.local; restores on startup
-- Token budgeting: budgetPrompt() keeps HEAD 60% + TAIL 40% when prompt > model limit
-- Security: allowlist (npm/git/python/etc.) + blocked tokens (&&/||/;/|/$() etc.) + path traversal 403
-- Routing: planning→chatgpt, coding→deepseek, debugging→qwen, long_context→gemini
-- Backend port: 8765
-- Watchdog: project_manager.py uses watchdog lib if installed for file system events
-
-## CI/CD
-
-- `.github/workflows/ci.yml` — Node 20/22 + Python 3.11/3.12 matrix
-- `.github/workflows/release.yml` — tag v*.*.* → zip extension → GitHub Release
-- `.github/CODEOWNERS` — extension core + security require owner review
-- `docs/architecture.md` — Mermaid state machine, sequence, security flow diagrams
+- Pipeline retries: Reviewer rejection triggers up to 2 Coder retry loops before proceeding
+- State machine states: IDLE → PLANNING → RESEARCHING → CODING → REVIEWING → RETRYING → TESTING → DONE/FAILED
+- All agent state changes broadcast via WebSocket `agent_status` events
+- Pipeline updates broadcast via `pipeline_update` events (full run dict)
+- DB schema uses JSONB for `shortTermMemory` (agents), `payload` (messages), `metadata` (tasks)
+- API server validation uses plain JS (no zod import) to avoid esbuild resolution issues
+- Zod catalog version: `^3.25.76` (v3, not v4 — use `"zod"` not `"zod/v4"` in api-server)

@@ -16,6 +16,7 @@ import { Sessions } from "@/pages/Sessions";
 import { SessionDetail } from "@/pages/SessionDetail";
 import { Memory } from "@/pages/Memory";
 import { AgentLive } from "@/pages/AgentLive";
+import { Pipeline } from "@/pages/Pipeline";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +36,7 @@ function Router() {
         <Route path="/projects/:id" component={ProjectDetail} />
         <Route path="/sessions" component={Sessions} />
         <Route path="/sessions/:id" component={SessionDetail} />
+        <Route path="/pipeline" component={Pipeline} />
         <Route path="/memory" component={Memory} />
         <Route path="/agent" component={AgentLive} />
         <Route component={NotFound} />
