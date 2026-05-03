@@ -44,11 +44,12 @@ Pipeline flow: `User Goal → Planner → Researcher → Coder → Reviewer → 
 ### React Dashboard (`artifacts/ai-agent/`, port 5000)
 - 6 pages: Overview, **Pipeline** (new), Projects, Sessions, Memory, Agent Live
 - Pipeline page: live 6-agent flow diagram, task board, inter-agent message feed, live log
-- Vite proxies `/api/*` → `localhost:8080`
+- Vite proxies `/api/*` → `localhost:8080`, `/python-api/*` → `localhost:8000`, `/python-ws` → `ws://localhost:8000/ws`
 
 ### API Server (`artifacts/api-server/`, port 8080)
-New multi-agent routes:
-- `POST /api/pipeline/start` — start a pipeline run (creates session + 6 agents + tasks)
+Multi-agent routes:
+- `POST /api/pipeline/start` — create DB records + fire-and-forget launch Python orchestrator
+- `POST /api/pipeline/:id/cancel` — cancel running pipeline, mark session paused
 - `GET  /api/pipeline/:sessionId/status` — full status (session + agents + tasks + messages)
 - `GET  /api/agents` — list agents (filter by `?sessionId=`)
 - `PATCH /api/agents/:id` — update agent status/currentTask
@@ -57,7 +58,7 @@ New multi-agent routes:
 - `GET  /api/agent-messages` — list inter-agent messages
 - `POST /api/agent-messages` — record a new message
 
-### Python Backend (`ai-agent-extension/backend/`, port 8765)
+### Python Backend (`ai-agent-extension/backend/`, port 8000)
 - **orchestrator.py** — main pipeline controller with 5-stage execution + retry logic
 - **agents/** — 5 specialized agent classes (planner, researcher, coder, reviewer, tester)
 - **base_agent.py** — abstract base with lifecycle, memory, bus publish, WebSocket broadcast
@@ -79,9 +80,11 @@ New multi-agent routes:
 ## Key Commands
 
 ```bash
-# Start both services
-PORT=8080 pnpm --filter @workspace/api-server run start    # API server
-PORT=5000 BASE_PATH=/ pnpm --filter @workspace/ai-agent run dev  # React dashboard
+# Start all three services (also available as Replit workflows)
+PORT=8080 pnpm --filter @workspace/api-server run start    # API server (port 8080)
+PORT=5000 BASE_PATH=/ pnpm --filter @workspace/ai-agent run dev  # React dashboard (port 5000)
+# Python backend (port 8000) — workflow: "Start Python backend"
+cd ai-agent-extension && uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
 
 # Build
 pnpm --filter @workspace/api-server run build   # compile TypeScript → dist/index.mjs

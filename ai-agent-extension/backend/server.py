@@ -24,6 +24,7 @@ from .ai_router import get_routing_config
 from .file_indexer import FileIndexer
 from .git_manager import GitManager
 from .logger import get_logger
+from .orchestrator import Orchestrator
 from .project_manager import ProjectManager
 from .security import SecurityManager
 from .test_runner import TestRunner
@@ -119,6 +120,75 @@ class CreateSessionRequest(BaseModel):
     goal: str
     model: str = "auto"
     project_id: Optional[int] = None
+
+
+class OrchestratorRunRequest(BaseModel):
+    goal: str
+    session_id: int
+    agent_ids: Dict[str, int] = {}    # role → DB agent row id
+    task_ids: Dict[int, int] = {}     # taskIndex → DB agent_task row id
+    callback_url: str = "http://localhost:8080"
+
+
+# ── Orchestrator (multi-agent pipeline) ────────────────────────────────────────
+
+_active_orchestrator: Optional[Orchestrator] = None
+_active_pipeline_task: Optional[asyncio.Task] = None
+
+
+@app.post("/orchestrator/run")
+async def orchestrator_run(req: OrchestratorRunRequest):
+    global _active_orchestrator, _active_pipeline_task
+
+    if _active_orchestrator and _active_orchestrator.is_running:
+        raise HTTPException(409, "An orchestrator pipeline is already running. Cancel it first.")
+
+    project_root: Optional[str] = None
+    try:
+        active = pm.get_active()
+        if active:
+            project_root = str(active)
+    except Exception:
+        pass
+
+    _active_orchestrator = Orchestrator(
+        memory_dir=str(MEMORY_DIR),
+        project_root=project_root,
+    )
+
+    async def run_pipeline():
+        try:
+            await _active_orchestrator.run(
+                goal=req.goal,
+                session_id=str(req.session_id),
+                agent_ids=req.agent_ids,
+                task_ids=req.task_ids,
+                callback_url=req.callback_url,
+            )
+        except asyncio.CancelledError:
+            log.info("Pipeline task cancelled")
+        except Exception as e:
+            log.exception(f"Pipeline failed with exception: {e}")
+
+    _active_pipeline_task = asyncio.create_task(run_pipeline())
+    return {"status": "started", "session_id": req.session_id, "run_id": "pending"}
+
+
+@app.get("/orchestrator/status")
+def orchestrator_status():
+    if not _active_orchestrator:
+        return {"running": False, "current_run": None, "history": [], "history_count": 0}
+    return _active_orchestrator.get_status()
+
+
+@app.post("/orchestrator/cancel")
+async def orchestrator_cancel():
+    global _active_pipeline_task
+    if _active_orchestrator:
+        await _active_orchestrator.cancel()
+    if _active_pipeline_task and not _active_pipeline_task.done():
+        _active_pipeline_task.cancel()
+    return {"status": "cancel_requested"}
 
 
 # ── Approval queue ─────────────────────────────────────────────────────────────

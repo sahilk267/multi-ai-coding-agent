@@ -102,12 +102,67 @@ router.post("/pipeline/start", async (req, res): Promise<void> => {
     payload: { goal: goal.trim(), task: "decompose_goal" },
   });
 
+  // Build lookup maps for the Python orchestrator's DB callbacks
+  const agentIds: Record<string, number> = {};
+  for (const a of agentRows) agentIds[a.role] = a.id;
+
+  const taskIds: Record<number, number> = {};
+  for (const t of taskRows) taskIds[t.taskIndex] = t.id;
+
+  // Fire-and-forget: launch the Python orchestrator (does not block the HTTP response)
+  const pythonPayload = JSON.stringify({
+    goal: goal.trim(),
+    session_id: session.id,
+    agent_ids: agentIds,
+    task_ids: taskIds,
+    callback_url: "http://localhost:8080",
+  });
+
+  fetch("http://localhost:8000/orchestrator/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: pythonPayload,
+  }).catch((err) => {
+    console.warn("[pipeline/start] Python orchestrator unavailable:", err.message);
+  });
+
   res.status(201).json({
     session,
     agents: agentRows,
     tasks: taskRows,
-    message: `Pipeline started with ${agentRows.length} agents`,
+    message: `Pipeline started with ${agentRows.length} agents — orchestrator launching`,
   });
+});
+
+// ── POST /pipeline/:sessionId/cancel ──────────────────────────────────────────
+
+router.post("/pipeline/:sessionId/cancel", async (req, res): Promise<void> => {
+  const sessionId = parseInt(req.params.sessionId, 10);
+  if (isNaN(sessionId)) {
+    res.status(400).json({ error: "Invalid session ID" });
+    return;
+  }
+
+  // Tell the Python orchestrator to stop
+  try {
+    await fetch("http://localhost:8000/orchestrator/cancel", { method: "POST" });
+  } catch {
+    /* orchestrator may already be done or not running */
+  }
+
+  // Mark session as paused in the DB
+  const [session] = await db
+    .update(sessionsTable)
+    .set({ status: "paused", updatedAt: new Date() } as Record<string, unknown>)
+    .where(eq(sessionsTable.id, sessionId))
+    .returning();
+
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  res.json({ ok: true, session, message: "Pipeline cancel requested" });
 });
 
 // ── GET /pipeline/:sessionId/status ──────────────────────────────────────────

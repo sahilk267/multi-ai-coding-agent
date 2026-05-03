@@ -485,6 +485,34 @@ paths:
         "404":
           description: Session not found
 
+  /pipeline/{sessionId}/cancel:
+    post:
+      operationId: cancelPipeline
+      tags: [pipeline]
+      summary: Cancel a running pipeline and mark session as paused
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pipeline cancel requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                  session:
+                    $ref: "#/components/schemas/AgentSession"
+        "404":
+          description: Session not found
+
   /agents:
     get:
       operationId: listAgents
@@ -595,6 +623,84 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentTask"
+
+  /orchestrator/run:
+    post:
+      operationId: orchestratorRun
+      tags: [orchestrator]
+      summary: Launch the multi-agent orchestrator pipeline (Python backend)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal:
+                  type: string
+                session_id:
+                  type: integer
+                agent_ids:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                task_ids:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                callback_url:
+                  type: string
+              required: [goal, session_id]
+      responses:
+        "200":
+          description: Orchestrator launched (background)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  session_id:
+                    type: integer
+        "409":
+          description: Orchestrator already running
+
+  /orchestrator/status:
+    get:
+      operationId: orchestratorStatus
+      tags: [orchestrator]
+      summary: Get current orchestrator pipeline status
+      responses:
+        "200":
+          description: Orchestrator status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  current_run:
+                    type: ["object", "null"]
+                  history_count:
+                    type: integer
+
+  /orchestrator/cancel:
+    post:
+      operationId: orchestratorCancel
+      tags: [orchestrator]
+      summary: Cancel the running orchestrator pipeline
+      responses:
+        "200":
+          description: Cancel requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
 
   /agent-messages:
     get:
