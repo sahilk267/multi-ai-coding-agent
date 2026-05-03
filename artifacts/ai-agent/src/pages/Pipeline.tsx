@@ -57,6 +57,17 @@ interface PipelineStatus {
   messages: AgentMessage[];
 }
 
+interface ProviderStatus {
+  active_provider: string;
+  ollama?: {
+    available: boolean;
+    host: string;
+    model: string;
+  };
+  cloud?: Record<string, boolean>;
+  fallback_mode?: boolean;
+}
+
 interface WsAgentMessage {
   type: string;
   payload: Record<string, unknown>;
@@ -121,6 +132,60 @@ function StatusDot({ status }: { status: string }) {
         status === "running" ? "animate-pulse" : ""
       }`}
     />
+  );
+}
+
+function ProviderStatusCard({
+  provider,
+}: {
+  provider: ProviderStatus | null;
+}) {
+  const active = provider?.active_provider ?? "unknown";
+  const isFallback = Boolean(provider?.fallback_mode) || active.includes("fallback");
+  const isOllama = active.startsWith("ollama/");
+  const cloud = provider?.cloud ?? {};
+  const cloudActive = Object.entries(cloud).filter(([, enabled]) => enabled).map(([k]) => k);
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Cpu className="h-4 w-4 text-primary" />
+        <span className="text-xs font-mono font-semibold uppercase tracking-wider">
+          LLM Backend
+        </span>
+        <Badge
+          variant="outline"
+          className={`ml-auto text-[10px] font-mono ${
+            isFallback ? "border-amber-500/40 text-amber-400" : isOllama ? "border-cyan-500/40 text-cyan-400" : "border-emerald-500/40 text-emerald-400"
+          }`}
+        >
+          {active}
+        </Badge>
+      </div>
+
+      <div className="grid gap-2 text-[10px] font-mono text-muted-foreground">
+        <div className="flex items-center justify-between gap-3">
+          <span>Mode</span>
+          <span className={isFallback ? "text-amber-400" : isOllama ? "text-cyan-400" : "text-emerald-400"}>
+            {isFallback ? "fallback" : isOllama ? "ollama" : "cloud"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <span>Ollama</span>
+          <span className={provider?.ollama?.available ? "text-cyan-400" : "text-zinc-500"}>
+            {provider?.ollama?.available ? `${provider.ollama.model}` : "offline"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <span>Cloud</span>
+          <span className={cloudActive.length ? "text-emerald-400" : "text-zinc-500"}>
+            {cloudActive.length ? cloudActive.join(", ") : "none"}
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -423,6 +488,7 @@ export function Pipeline() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"tasks" | "messages" | "feed">("tasks");
+  const [provider, setProvider] = useState<ProviderStatus | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async (sid: number) => {
@@ -441,13 +507,27 @@ export function Pipeline() {
     } catch { /* silent */ }
   }, []);
 
+  const fetchProvider = useCallback(async () => {
+    try {
+      const res = await fetch("/python-api/provider/status");
+      if (res.ok) {
+        const data: ProviderStatus = await res.json();
+        setProvider(data);
+      }
+    } catch { /* silent */ }
+  }, []);
+
   const onWsUpdate = useCallback(() => {
     if (sessionId) fetchStatus(sessionId);
   }, [sessionId, fetchStatus]);
 
-  const { liveMessages, wsConnected } = useLiveFeed(sessionId, onWsUpdate);
+  const { liveMessages, wsConnected } = useLiveFeed(sessionId, () => {
+    onWsUpdate();
+    fetchProvider();
+  });
 
   useEffect(() => {
+    fetchProvider();
     if (sessionId) {
       fetchStatus(sessionId);
       pollRef.current = setInterval(() => fetchStatus(sessionId), 3000);
@@ -455,7 +535,7 @@ export function Pipeline() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [sessionId, fetchStatus]);
+  }, [sessionId, fetchStatus, fetchProvider]);
 
   const activeRoles = new Set(
     (status?.agents ?? []).filter((a) => a.status === "running").map((a) => a.role)
@@ -533,6 +613,10 @@ export function Pipeline() {
         </div>
 
         <div className="ml-auto flex items-center gap-3">
+          <div className="w-56 hidden xl:block">
+            <ProviderStatusCard provider={provider} />
+          </div>
+
           {/* WebSocket connection indicator */}
           <div
             className={`flex items-center gap-1.5 text-[10px] font-mono ${
