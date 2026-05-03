@@ -4,10 +4,10 @@ Routed to: ChatGPT (reasoning-heavy model)
 """
 
 import json
-import re
 import time
 from typing import Any, Dict, List
 
+from ..ai_providers import call_model, extract_json
 from .base_agent import BaseAgent
 
 
@@ -36,8 +36,17 @@ class PlannerAgent(BaseAgent):
         await self._log(f"[PLANNER] Decomposing goal: {goal}")
 
         start = time.time()
-
         structured_tasks = self._decompose(goal, context)
+        prompt = self._build_prompt(task, context)
+        provider_result = call_model(
+            self.ai_model,
+            self.system_prompt,
+            prompt,
+            {"tasks": structured_tasks},
+        )
+
+        if isinstance(provider_result, dict) and provider_result.get("tasks"):
+            structured_tasks = provider_result["tasks"]
 
         self._mem.set_context("plan", structured_tasks)
         self._ltm.write("shared", "last_plan", {
@@ -69,9 +78,7 @@ class PlannerAgent(BaseAgent):
         realistic task graph based on common coding patterns.
         """
         goal_lower = goal.lower()
-
         base_tasks = []
-
         base_tasks.append({
             "id": "T1",
             "title": "Research codebase structure",
@@ -81,7 +88,6 @@ class PlannerAgent(BaseAgent):
             "dependencies": [],
             "status": "pending",
         })
-
         if any(kw in goal_lower for kw in ["fix", "bug", "error", "crash", "fail"]):
             base_tasks.append({
                 "id": "T2",
@@ -151,7 +157,6 @@ class PlannerAgent(BaseAgent):
             })
 
         last_coding_id = base_tasks[-1]["id"]
-
         base_tasks.append({
             "id": "T4",
             "title": "Code review",
@@ -161,7 +166,6 @@ class PlannerAgent(BaseAgent):
             "dependencies": [last_coding_id],
             "status": "pending",
         })
-
         base_tasks.append({
             "id": "T5",
             "title": "Run tests and validate",
@@ -171,5 +175,4 @@ class PlannerAgent(BaseAgent):
             "dependencies": ["T4"],
             "status": "pending",
         })
-
         return base_tasks

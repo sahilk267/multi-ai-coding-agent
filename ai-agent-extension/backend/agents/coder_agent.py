@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..ai_providers import call_model
 from .base_agent import BaseAgent
 
 
@@ -49,6 +50,10 @@ class CoderAgent(BaseAgent):
                 self._mem.add("review_feedback", fb, category="feedback")
 
         changes = self._plan_changes(description, research, review_feedback)
+        prompt = self._build_prompt(task, context)
+        provider_result = call_model(self.ai_model, self.system_prompt, prompt, {"changes": changes})
+        if isinstance(provider_result, dict) and provider_result.get("changes"):
+            changes = provider_result["changes"]
 
         written_files = []
         if self._project_root:

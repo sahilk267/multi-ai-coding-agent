@@ -7,6 +7,7 @@ import json
 import time
 from typing import Any, Dict, List
 
+from ..ai_providers import call_model
 from .base_agent import BaseAgent
 
 
@@ -37,8 +38,11 @@ class ReviewerAgent(BaseAgent):
 
         changes = context.get("coder_output", {}).get("changes", {})
         research = context.get("research", {})
-
         review = self._perform_review(changes, research, description)
+        prompt = self._build_prompt(task, context)
+        provider_result = call_model(self.ai_model, self.system_prompt, prompt, {"review": review})
+        if isinstance(provider_result, dict) and provider_result.get("review"):
+            review = provider_result["review"]
 
         self._mem.set_context("last_review", review)
         self._ltm.append("shared", "reviews", {

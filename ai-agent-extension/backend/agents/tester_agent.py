@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..ai_providers import call_model
 from .base_agent import BaseAgent
 
 
@@ -58,6 +59,10 @@ class TesterAgent(BaseAgent):
             return result
 
         test_result = await self._run_tests()
+        prompt = self._build_prompt(task, context)
+        provider_result = call_model(self.ai_model, self.system_prompt, prompt, test_result)
+        if isinstance(provider_result, dict):
+            test_result = provider_result
         test_result["agent"] = self.ROLE
 
         self._mem.set_context("last_test", test_result)

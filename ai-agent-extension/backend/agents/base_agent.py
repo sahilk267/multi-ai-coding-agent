@@ -145,6 +145,9 @@ class BaseAgent(ABC):
 
         return "\n".join(p for p in parts if p)
 
+    def _provider_name(self) -> str:
+        return self.ai_model
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "role": self.role,

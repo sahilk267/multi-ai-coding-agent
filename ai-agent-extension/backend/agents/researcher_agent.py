@@ -5,11 +5,11 @@ Routed to: Gemini (long context model for large codebase understanding)
 """
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..ai_providers import call_model
 from .base_agent import BaseAgent
 
 
@@ -58,6 +58,10 @@ class ResearcherAgent(BaseAgent):
             research["tech_stack"] = []
 
         research["analysis"] = self._analyze_task(description, research)
+        prompt = self._build_prompt(task, context)
+        provider_result = call_model(self.ai_model, self.system_prompt, prompt, {"research": research})
+        if isinstance(provider_result, dict) and provider_result.get("research"):
+            research = provider_result["research"]
 
         self._mem.set_context("research", research)
         self._ltm.write("shared", "project_context", json.dumps(research, default=str)[:4000])
