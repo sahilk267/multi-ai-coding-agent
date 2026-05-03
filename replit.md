@@ -65,6 +65,7 @@ Multi-agent routes:
 - **message_bus.py** — async JSON pub/sub with subscriber callbacks and history
 - **agent_memory.py** — ShortTermMemory (sliding window) + LongTermMemory (JSON files)
 - **server.py** — FastAPI with 22+ REST endpoints + WebSocket `/ws`
+- **ai_providers.py** — provider abstraction with safe fallback when free-tier keys are unavailable
 
 ### DB Schema (`lib/db/src/schema/`)
 - `projects`, `sessions`, `logs`, `plans`, `memory` — original tables
@@ -96,6 +97,18 @@ pnpm --filter @workspace/api-spec run codegen   # regenerate API client hooks fr
 # Python backend
 cd ai-agent-extension/backend && uvicorn server:app --reload --host 127.0.0.1 --port 8765
 ```
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Preview is blank | React dev server not running | Restart `Start application` and hard refresh |
+| `/api/pipeline/start` fails | API server not running or DB unavailable | Check `Start API server` logs; verify PostgreSQL env is set |
+| Python pipeline starts but no agents move | Python backend stale or callback failed | Restart `Start Python backend`; confirm `http://localhost:8000/orchestrator/status` responds |
+| WS feed shows reconnecting forever | Vite proxy or host config mismatch | Keep `allowedHosts: true` and restart the frontend workflow |
+| Cancel button does nothing | Orchestrator already finished or backend not reachable | Check `/api/pipeline/:id/status` and backend logs |
+| Agent output looks simulated | No provider key configured | This is expected fallback; `ai_providers.py` keeps the run working without secrets |
+| Real model calls are not happening | Free-tier keys not present | Add a supported key later; until then the fallback path is used safely |
 
 ## Agent Model Routing
 
